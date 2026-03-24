@@ -1,0 +1,23 @@
+$tf-mint: #a8e6cf;
+$tf-blue: #7ab3ef;
+$tf-coral: #ff8b94;
+$tf-navy: #1d2b3b;
+$tf-ink: #2f3a47;
+
+@mixin glass-panel {
+  background: var(--tf-surface);
+  border: 1px solid var(--tf-border);
+  border-radius: 32rpx;
+  box-shadow: var(--tf-shadow);
+  backdrop-filter: blur(28rpx);
+}
+
+@mixin subtle-pill {
+  background: rgba(255, 255, 255, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999rpx;
+}
+
+@mixin primary-gradient {
+  background-image: linear-gradient(135deg, #a8e6cf 0%, #7ab3ef 100%);
+}

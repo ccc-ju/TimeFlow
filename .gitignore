@@ -1,0 +1,46 @@
+.DS_Store
+node_modules/
+dist/
+coverage/
+
+# local env files
+.env.local
+.env.*.local
+
+# build and signing
+build-assets/
+build-sign/
+*.keystore
+*.jks
+*.p12
+*.mobileprovision
+
+# local app cache
+.hbuilderx/
+.idea/
+.vscode/
+.turbo/
+
+# generated files
+.auto-imports.d.ts
+src/uni_modules/
+
+# template / scaffold leftovers
+_starter_alt/
+_template/
+_template_gh/
+app-icons/
+
+# Log files
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor directories and files
+.project
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw*

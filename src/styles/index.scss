@@ -1,0 +1,118 @@
+@import './variables.scss';
+
+:root,
+html,
+body {
+  --tf-page-bg: #f7fbff;
+  --tf-surface: rgba(255, 255, 255, 0.72);
+  --tf-surface-strong: rgba(255, 255, 255, 0.92);
+  --tf-surface-soft: rgba(245, 249, 252, 0.74);
+  --tf-border: rgba(123, 160, 191, 0.14);
+  --tf-text-primary: #1d2b3b;
+  --tf-text-secondary: #657385;
+  --tf-text-muted: #91a0af;
+  --tf-shadow: 0 28rpx 70rpx rgba(67, 102, 134, 0.13);
+  --tf-page-gradient-blue: rgba(122, 179, 239, 0.22);
+  --tf-page-gradient-mint: rgba(168, 230, 207, 0.3);
+  --tf-control-surface: rgba(255, 255, 255, 0.2);
+  --tf-control-surface-strong: rgba(255, 255, 255, 0.28);
+}
+
+page,
+view,
+text,
+button,
+image,
+scroll-view,
+swiper,
+swiper-item {
+  box-sizing: border-box;
+}
+
+page {
+  min-height: 100%;
+  color: var(--tf-text-primary);
+  background:
+    radial-gradient(circle at top right, rgba(122, 179, 239, 0.22), transparent 34%),
+    radial-gradient(circle at left 20%, rgba(168, 230, 207, 0.3), transparent 26%),
+    var(--tf-page-bg);
+  font-family:
+    'SF Pro Display', 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif;
+}
+
+html,
+body {
+  background:
+    radial-gradient(circle at top right, rgba(122, 179, 239, 0.22), transparent 34%),
+    radial-gradient(circle at left 20%, rgba(168, 230, 207, 0.3), transparent 26%),
+    var(--tf-page-bg);
+  transition:
+    background 0.22s ease,
+    color 0.22s ease;
+}
+
+button {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  line-height: inherit;
+}
+
+button::after {
+  border: 0;
+}
+
+.theme-light,
+html.theme-light,
+body.theme-light {
+  --tf-page-bg: #f7fbff;
+  --tf-surface: rgba(255, 255, 255, 0.72);
+  --tf-surface-strong: rgba(255, 255, 255, 0.92);
+  --tf-surface-soft: rgba(245, 249, 252, 0.74);
+  --tf-border: rgba(123, 160, 191, 0.14);
+  --tf-text-primary: #1d2b3b;
+  --tf-text-secondary: #657385;
+  --tf-text-muted: #91a0af;
+  --tf-shadow: 0 28rpx 70rpx rgba(67, 102, 134, 0.13);
+  --tf-page-gradient-blue: rgba(122, 179, 239, 0.22);
+  --tf-page-gradient-mint: rgba(168, 230, 207, 0.3);
+  --tf-control-surface: rgba(255, 255, 255, 0.2);
+  --tf-control-surface-strong: rgba(255, 255, 255, 0.28);
+}
+
+.theme-dark,
+html.theme-dark,
+body.theme-dark {
+  --tf-page-bg: #141b22;
+  --tf-surface: rgba(28, 37, 48, 0.72);
+  --tf-surface-strong: rgba(31, 42, 54, 0.92);
+  --tf-surface-soft: rgba(24, 34, 44, 0.82);
+  --tf-border: rgba(163, 191, 215, 0.12);
+  --tf-text-primary: #f2f7fb;
+  --tf-text-secondary: #a3b0be;
+  --tf-text-muted: #71808f;
+  --tf-shadow: 0 28rpx 70rpx rgba(3, 10, 18, 0.4);
+  --tf-page-gradient-blue: rgba(66, 121, 177, 0.18);
+  --tf-page-gradient-mint: rgba(74, 144, 119, 0.14);
+  --tf-control-surface: rgba(54, 69, 86, 0.46);
+  --tf-control-surface-strong: rgba(60, 78, 96, 0.58);
+}
+
+.glass-card {
+  background: var(--tf-surface);
+  border: 1px solid var(--tf-border);
+  border-radius: 34rpx;
+  box-shadow: var(--tf-shadow);
+  backdrop-filter: blur(28rpx);
+}
+
+.mono {
+  font-family:
+    'SF Mono', 'Roboto Mono', 'JetBrains Mono', 'Menlo', 'Monaco', monospace;
+  letter-spacing: 3rpx;
+}
+
+.safe-bottom-space {
+  height: calc(160rpx + env(safe-area-inset-bottom));
+}
