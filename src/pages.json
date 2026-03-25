@@ -3,31 +3,47 @@
     {
       "path": "pages/home/index",
       "style": {
-        "navigationStyle": "custom"
+        "navigationStyle": "custom",
+        "app-plus": {
+          "bounce": "vertical",
+          "popGesture": "none"
+        }
       }
     },
     {
       "path": "pages/calendar/index",
       "style": {
-        "navigationStyle": "custom"
+        "navigationStyle": "custom",
+        "app-plus": {
+          "bounce": "vertical"
+        }
       }
     },
     {
       "path": "pages/statistics/index",
       "style": {
-        "navigationStyle": "custom"
+        "navigationStyle": "custom",
+        "app-plus": {
+          "bounce": "vertical"
+        }
       }
     },
     {
       "path": "pages/profile/index",
       "style": {
-        "navigationStyle": "custom"
+        "navigationStyle": "custom",
+        "app-plus": {
+          "bounce": "vertical"
+        }
       }
     },
     {
       "path": "pages/task-detail/index",
       "style": {
-        "navigationStyle": "custom"
+        "navigationStyle": "custom",
+        "app-plus": {
+          "bounce": "vertical"
+        }
       }
     }
   ],

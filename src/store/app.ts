@@ -254,6 +254,9 @@ export const useAppStore = defineStore('app', {
         enabled: false
       }
       await setSetting('notificationEnabled', 'false')
+      await this.syncNotifications().catch((error) => {
+        console.warn('clear notifications skipped', error)
+      })
       if (!preservePending) {
         this.notificationPermissionPending = false
       }

@@ -1,0 +1,443 @@
+import AlarmManager from 'android.app.AlarmManager'
+import ActivityManager from 'android.app.ActivityManager'
+import Notification from 'android.app.Notification'
+import NotificationChannel from 'android.app.NotificationChannel'
+import NotificationManager from 'android.app.NotificationManager'
+import PendingIntent from 'android.app.PendingIntent'
+import BroadcastReceiver from 'android.content.BroadcastReceiver'
+import Context from 'android.content.Context'
+import Intent from 'android.content.Intent'
+import Build from 'android.os.Build'
+import NotificationCompat from 'androidx.core.app.NotificationCompat'
+import NotificationManagerCompat from 'androidx.core.app.NotificationManagerCompat'
+import Calendar from 'java.util.Calendar'
+
+import {
+  ReminderActionOptions,
+  ReminderActionResult,
+  ReminderScheduleOptions
+} from '../interface.uts'
+
+const BACKEND = 'alarm-manager'
+const CHANNEL_ID = 'timeflow_daily_reminder'
+const CHANNEL_NAME = 'TimeFlow Daily Reminder'
+const CHANNEL_DESC = 'TimeFlow daily focus reminders'
+const ACTION_TRIGGER = 'io.timeflow.localnotification.ACTION_TRIGGER'
+const REMINDER_RECEIVER_CLASS = 'uts.sdk.modules.timeflowLocalNotification.ReminderAlarmReceiver'
+const PREFS_NAME = 'timeflow_local_notification'
+const KEY_TIME = 'time'
+const KEY_REPEAT_DAYS = 'repeat_days'
+const KEY_TITLE = 'title'
+const KEY_CONTENT = 'content'
+const EXTRA_DAY = 'day'
+const EXTRA_HOUR = 'hour'
+const EXTRA_MINUTE = 'minute'
+const EXTRA_TITLE = 'title'
+const EXTRA_CONTENT = 'content'
+
+function buildResult(errMsg: string, scheduledCount: number = 0): ReminderActionResult {
+  return {
+    errMsg,
+    backend: BACKEND,
+    scheduledCount
+  }
+}
+
+function notifyAction(options: ReminderActionOptions | null = null, ok: boolean, errMsg: string, scheduledCount: number = 0) {
+  if (options == null) return
+  const result = buildResult(errMsg, scheduledCount)
+
+  if (ok) {
+    if (options.success != null) {
+      options.success(result)
+    }
+  } else {
+    if (options.fail != null) {
+      options.fail(result)
+    }
+  }
+
+  if (options.complete != null) {
+    options.complete(result)
+  }
+}
+
+function notifySchedule(options: ReminderScheduleOptions, ok: boolean, errMsg: string, scheduledCount: number = 0) {
+  const result = buildResult(errMsg, scheduledCount)
+
+  if (ok) {
+    if (options.success != null) {
+      options.success(result)
+    }
+  } else {
+    if (options.fail != null) {
+      options.fail(result)
+    }
+  }
+
+  if (options.complete != null) {
+    options.complete(result)
+  }
+}
+
+function getContext(): Context | null {
+  return getAppContext()
+}
+
+function getPreferences(context: Context) {
+  return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+}
+
+function normalizeDay(day: number): number {
+  if (day >= 0 && day <= 6) {
+    return day
+  }
+
+  return 0
+}
+
+function normalizeTimePart(value: number, max: number): number {
+  if (value < 0) return 0
+  if (value > max) return max
+  return value
+}
+
+function parseTime(input: string): { hour: number; minute: number } {
+  const safeInput = input != null ? input : '21:00'
+  const pieces = safeInput.split(':')
+
+  if (pieces.length != 2) {
+    return {
+      hour: 21,
+      minute: 0
+    }
+  }
+
+  return {
+    hour: normalizeTimePart(Number(pieces[0]), 23),
+    minute: normalizeTimePart(Number(pieces[1]), 59)
+  }
+}
+
+function persistSchedule(context: Context, options: ReminderScheduleOptions) {
+  const prefs = getPreferences(context)
+  prefs
+    .edit()
+    .putString(KEY_TIME, options.time)
+    .putString(KEY_REPEAT_DAYS, options.repeatDays.join(','))
+    .putString(KEY_TITLE, options.title)
+    .putString(KEY_CONTENT, options.content)
+    .apply()
+}
+
+function clearStoredSchedule(context: Context) {
+  const prefs = getPreferences(context)
+  prefs
+    .edit()
+    .remove(KEY_TIME)
+    .remove(KEY_REPEAT_DAYS)
+    .remove(KEY_TITLE)
+    .remove(KEY_CONTENT)
+    .apply()
+}
+
+function requestCodeForDay(day: number): number {
+  return 42000 + normalizeDay(day)
+}
+
+function toCalendarDay(day: number): number {
+  if (normalizeDay(day) == 0) {
+    return Calendar.SUNDAY
+  }
+
+  return normalizeDay(day) + 1
+}
+
+function toJsDay(calendarDay: number): number {
+  if (calendarDay == Calendar.SUNDAY) {
+    return 0
+  }
+
+  return calendarDay - 1
+}
+
+function computeNextTriggerMillis(day: number, hour: number, minute: number): number {
+  const now = Calendar.getInstance()
+  const normalizedDay = normalizeDay(day)
+  const currentJsDay = toJsDay(now.get(Calendar.DAY_OF_WEEK))
+  const isCurrentMinute =
+    currentJsDay == normalizedDay &&
+    now.get(Calendar.HOUR_OF_DAY) == hour &&
+    now.get(Calendar.MINUTE) == minute
+
+  if (isCurrentMinute) {
+    return now.getTimeInMillis() + 5000
+  }
+
+  const target = Calendar.getInstance()
+  target.set(Calendar.SECOND, 0)
+  target.set(Calendar.MILLISECOND, 0)
+  target.set(Calendar.HOUR_OF_DAY, hour)
+  target.set(Calendar.MINUTE, minute)
+  target.set(Calendar.DAY_OF_WEEK, toCalendarDay(normalizedDay))
+
+  if (target.getTimeInMillis() <= now.getTimeInMillis()) {
+    target.add(Calendar.WEEK_OF_YEAR, 1)
+  }
+
+  return target.getTimeInMillis()
+}
+
+function createReminderIntent(context: Context, day: number, hour: number, minute: number, title: string, content: string): Intent {
+  const intent = new Intent(ACTION_TRIGGER)
+  intent.setClassName(context, REMINDER_RECEIVER_CLASS)
+  intent.putExtra(EXTRA_DAY, normalizeDay(day))
+  intent.putExtra(EXTRA_HOUR, hour)
+  intent.putExtra(EXTRA_MINUTE, minute)
+  intent.putExtra(EXTRA_TITLE, title)
+  intent.putExtra(EXTRA_CONTENT, content)
+  return intent
+}
+
+function buildPendingIntent(context: Context, day: number, hour: number, minute: number, title: string, content: string) {
+  const intent = createReminderIntent(context, day, hour, minute, title, content)
+  let flags = PendingIntent.FLAG_UPDATE_CURRENT
+
+  if (Build.VERSION.SDK_INT >= 23) {
+    flags = flags | PendingIntent.FLAG_IMMUTABLE
+  }
+
+  return PendingIntent.getBroadcast(context, requestCodeForDay(day), intent, flags)
+}
+
+function buildCancelIntent(context: Context, day: number) {
+  const intent = new Intent(ACTION_TRIGGER)
+  intent.setClassName(context, REMINDER_RECEIVER_CLASS)
+  let flags = PendingIntent.FLAG_UPDATE_CURRENT
+
+  if (Build.VERSION.SDK_INT >= 23) {
+    flags = flags | PendingIntent.FLAG_IMMUTABLE
+  }
+
+  return PendingIntent.getBroadcast(context, requestCodeForDay(day), intent, flags)
+}
+
+function ensureNotificationChannel(context: Context) {
+  if (Build.VERSION.SDK_INT < 26) return
+
+  const manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+  if (manager == null) return
+
+  const existing = manager.getNotificationChannel(CHANNEL_ID)
+  if (existing != null) return
+
+  const channel = new NotificationChannel(CHANNEL_ID, CHANNEL_NAME, NotificationManager.IMPORTANCE_HIGH)
+  channel.setDescription(CHANNEL_DESC)
+  channel.enableVibration(true)
+  manager.createNotificationChannel(channel)
+}
+
+function scheduleAlarm(context: Context, day: number, hour: number, minute: number, title: string, content: string) {
+  const alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+  if (alarmManager == null) return
+
+  const triggerAtMillis = computeNextTriggerMillis(day, hour, minute)
+  const pendingIntent = buildPendingIntent(context, day, hour, minute, title, content)
+
+  if (Build.VERSION.SDK_INT >= 23) {
+    try {
+      alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
+      return
+    } catch (error) {
+      alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
+      return
+    }
+  }
+
+  if (Build.VERSION.SDK_INT >= 19) {
+    alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
+    return
+  }
+
+  alarmManager.set(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
+}
+
+function cancelAllAlarms(context: Context) {
+  const alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+  if (alarmManager == null) return
+
+  for (let day = 0; day < 7; day += 1) {
+    const pendingIntent = buildCancelIntent(context, day)
+    alarmManager.cancel(pendingIntent)
+    pendingIntent.cancel()
+  }
+}
+
+function clearDisplayedNotifications(context: Context) {
+  const manager = NotificationManagerCompat.from(context)
+
+  for (let day = 0; day < 7; day += 1) {
+    manager.cancel(requestCodeForDay(day))
+  }
+}
+
+function isAppInForeground(context: Context): boolean {
+  const activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+  if (activityManager == null) return false
+
+  const processes = activityManager.getRunningAppProcesses()
+  if (processes == null) return false
+
+  for (let index = 0; index < processes.size; index += 1) {
+    const process = processes.get(index)
+    if (process != null && process.processName == context.getPackageName()) {
+      return process.importance == ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
+    }
+  }
+
+  return false
+}
+
+function buildContentIntent(context: Context, day: number) {
+  const launchIntent = context.getPackageManager().getLaunchIntentForPackage(context.getPackageName())
+  if (launchIntent == null) return null
+
+  launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP)
+  let flags = PendingIntent.FLAG_UPDATE_CURRENT
+
+  if (Build.VERSION.SDK_INT >= 23) {
+    flags = flags | PendingIntent.FLAG_IMMUTABLE
+  }
+
+  return PendingIntent.getActivity(context, requestCodeForDay(day) + 100, launchIntent, flags)
+}
+
+function showNotification(context: Context, day: number, title: string, content: string) {
+  ensureNotificationChannel(context)
+
+  const builder = new NotificationCompat.Builder(context, CHANNEL_ID)
+    .setSmallIcon(context.getApplicationInfo().icon)
+    .setContentTitle(title)
+    .setContentText(content)
+    .setAutoCancel(true)
+    .setPriority(NotificationCompat.PRIORITY_HIGH)
+    .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+    .setDefaults(Notification.DEFAULT_ALL)
+
+  const contentIntent = buildContentIntent(context, day)
+  if (contentIntent != null) {
+    builder.setContentIntent(contentIntent)
+  }
+
+  NotificationManagerCompat.from(context).notify(requestCodeForDay(day), builder.build())
+}
+
+function restoreSchedule(context: Context) {
+  const prefs = getPreferences(context)
+  const time = prefs.getString(KEY_TIME, '')
+  const repeatDaysRaw = prefs.getString(KEY_REPEAT_DAYS, '')
+
+  if (time == null || time.length == 0 || repeatDaysRaw == null || repeatDaysRaw.length == 0) {
+    cancelAllAlarms(context)
+    clearDisplayedNotifications(context)
+    return
+  }
+
+  const title = prefs.getString(KEY_TITLE, 'TimeFlow Reminder') || 'TimeFlow Reminder'
+  const content = prefs.getString(KEY_CONTENT, 'Review today and plan your next focus session.') || 'Review today and plan your next focus session.'
+  const repeatDays = repeatDaysRaw.split(',')
+  const parsedTime = parseTime(time)
+
+  cancelAllAlarms(context)
+
+  for (let index = 0; index < repeatDays.length; index += 1) {
+    const value = repeatDays[index]
+    if (value == null || value.length == 0) continue
+    scheduleAlarm(context, Number(value), parsedTime.hour, parsedTime.minute, title, content)
+  }
+}
+
+export class ReminderAlarmReceiver extends BroadcastReceiver {
+  override onReceive(context: Context, intent: Intent) {
+    const day = intent.getIntExtra(EXTRA_DAY, 0)
+    const hour = intent.getIntExtra(EXTRA_HOUR, 21)
+    const minute = intent.getIntExtra(EXTRA_MINUTE, 0)
+    const title = intent.getStringExtra(EXTRA_TITLE) || 'TimeFlow Reminder'
+    const content = intent.getStringExtra(EXTRA_CONTENT) || 'Review today and plan your next focus session.'
+
+    scheduleAlarm(context, day, hour, minute, title, content)
+
+    if (!isAppInForeground(context)) {
+      showNotification(context, day, title, content)
+    }
+  }
+}
+
+export class ReminderRestoreReceiver extends BroadcastReceiver {
+  override onReceive(context: Context, intent: Intent) {
+    restoreSchedule(context)
+  }
+}
+
+export function isAvailable(): boolean {
+  return true
+}
+
+export function syncReminderSchedule(options: ReminderScheduleOptions): void {
+  const context = getContext()
+
+  if (context == null) {
+    notifySchedule(options, false, 'syncReminderSchedule:fail app context unavailable')
+    return
+  }
+
+  if (options.repeatDays == null || options.repeatDays.length == 0) {
+    clearStoredSchedule(context)
+    cancelAllAlarms(context)
+    clearDisplayedNotifications(context)
+    notifySchedule(options, false, 'syncReminderSchedule:fail repeatDays required')
+    return
+  }
+
+  const parsedTime = parseTime(options.time)
+
+  try {
+    persistSchedule(context, options)
+    cancelAllAlarms(context)
+    clearDisplayedNotifications(context)
+    ensureNotificationChannel(context)
+
+    for (let index = 0; index < options.repeatDays.length; index += 1) {
+      scheduleAlarm(
+        context,
+        options.repeatDays[index],
+        parsedTime.hour,
+        parsedTime.minute,
+        options.title,
+        options.content
+      )
+    }
+
+    notifySchedule(options, true, 'syncReminderSchedule:ok', options.repeatDays.length)
+  } catch (error) {
+    notifySchedule(options, false, `syncReminderSchedule:fail ${error}`)
+  }
+}
+
+export function clearReminderSchedule(options: ReminderActionOptions | null = null): void {
+  const context = getContext()
+
+  if (context == null) {
+    notifyAction(options, false, 'clearReminderSchedule:fail app context unavailable')
+    return
+  }
+
+  try {
+    clearStoredSchedule(context)
+    cancelAllAlarms(context)
+    clearDisplayedNotifications(context)
+    notifyAction(options, true, 'clearReminderSchedule:ok', 0)
+  } catch (error) {
+    notifyAction(options, false, `clearReminderSchedule:fail ${error}`)
+  }
+}

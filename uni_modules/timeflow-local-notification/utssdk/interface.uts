@@ -1,0 +1,25 @@
+export type ReminderActionResult = {
+  errMsg: string
+  backend: string
+  scheduledCount: number
+}
+
+export type ReminderActionOptions = {
+  success?: (res: ReminderActionResult) => void
+  fail?: (res: ReminderActionResult) => void
+  complete?: (res: ReminderActionResult) => void
+}
+
+export type ReminderScheduleOptions = {
+  time: string
+  repeatDays: number[]
+  title: string
+  content: string
+  success?: (res: ReminderActionResult) => void
+  fail?: (res: ReminderActionResult) => void
+  complete?: (res: ReminderActionResult) => void
+}
+
+export function isAvailable(): boolean
+export function syncReminderSchedule(options: ReminderScheduleOptions): void
+export function clearReminderSchedule(options?: ReminderActionOptions): void

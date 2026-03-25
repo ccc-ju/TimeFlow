@@ -1,0 +1,64 @@
+import {
+  ReminderActionOptions,
+  ReminderActionResult,
+  ReminderScheduleOptions
+} from '../interface.uts'
+
+const BACKEND = 'unsupported'
+
+function buildResult(errMsg: string): ReminderActionResult {
+  return {
+    errMsg,
+    backend: BACKEND,
+    scheduledCount: 0
+  }
+}
+
+function notifyAction(options: ReminderActionOptions | null = null, ok: boolean, errMsg: string) {
+  if (options == null) return
+  const result = buildResult(errMsg)
+
+  if (ok) {
+    if (options.success != null) {
+      options.success(result)
+    }
+  } else {
+    if (options.fail != null) {
+      options.fail(result)
+    }
+  }
+
+  if (options.complete != null) {
+    options.complete(result)
+  }
+}
+
+function notifySchedule(options: ReminderScheduleOptions, ok: boolean, errMsg: string) {
+  const result = buildResult(errMsg)
+
+  if (ok) {
+    if (options.success != null) {
+      options.success(result)
+    }
+  } else {
+    if (options.fail != null) {
+      options.fail(result)
+    }
+  }
+
+  if (options.complete != null) {
+    options.complete(result)
+  }
+}
+
+export function isAvailable(): boolean {
+  return false
+}
+
+export function syncReminderSchedule(options: ReminderScheduleOptions): void {
+  notifySchedule(options, false, 'syncReminderSchedule:fail unsupported')
+}
+
+export function clearReminderSchedule(options: ReminderActionOptions | null = null): void {
+  notifyAction(options, false, 'clearReminderSchedule:fail unsupported')
+}

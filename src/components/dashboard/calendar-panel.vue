@@ -188,6 +188,7 @@ function onRowTouchMove(event: TouchEvent, taskId: string) {
   }
 
   event.preventDefault()
+  event.stopPropagation()
   const delta = deltaX + touchStartOffset.value
   const limited = Math.max(-MAX_DRAG, Math.min(0, delta))
   const nextOffset = limited < -OPEN_OFFSET ? -OPEN_OFFSET + (limited + OPEN_OFFSET) * 0.35 : limited
@@ -197,6 +198,14 @@ function onRowTouchMove(event: TouchEvent, taskId: string) {
 }
 
 function onRowTouchEnd(taskId: string) {
+  if (deletingTaskId.value) return
+  const nextOffset = rowOffset(taskId) < -48 ? -OPEN_OFFSET : 0
+  setRowOffset(taskId, nextOffset)
+  activeSwipeId.value = nextOffset ? taskId : ''
+  horizontalSwipeActive.value = false
+}
+
+function onRowTouchCancel(taskId: string) {
   if (deletingTaskId.value) return
   const nextOffset = rowOffset(taskId) < -48 ? -OPEN_OFFSET : 0
   setRowOffset(taskId, nextOffset)
@@ -303,6 +312,7 @@ async function deleteTask(taskId: string) {
           @touchstart.passive="onRowTouchStart($event, task.id)"
           @touchmove="onRowTouchMove($event, task.id)"
           @touchend="onRowTouchEnd(task.id)"
+          @touchcancel="onRowTouchCancel(task.id)"
           @tap="openTask(task.id)"
         >
           <view :class="['review__status-dot', { 'review__status-dot--done': task.status === 'done', 'review__status-dot--busy': deletingTaskId === task.id || isTaskRunning(task) }]">
@@ -491,6 +501,7 @@ async function deleteTask(taskId: string) {
   min-height: 170rpx;
   overflow: hidden;
   border-radius: 34rpx;
+  touch-action: pan-y;
 }
 
 .review__delete {
@@ -532,6 +543,7 @@ async function deleteTask(taskId: string) {
   transition:
     transform 0.22s ease,
     opacity 0.2s ease;
+  touch-action: pan-y;
 }
 
 .review__item--busy {

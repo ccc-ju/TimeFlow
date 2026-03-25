@@ -79,12 +79,19 @@ function onTouchMove(event: TouchEvent) {
   }
 
   event.preventDefault()
+  event.stopPropagation()
   const delta = deltaX + startOffset.value
   const limited = Math.max(-MAX_DRAG, Math.min(0, delta))
   offset.value = limited < -OPEN_OFFSET ? -OPEN_OFFSET + (limited + OPEN_OFFSET) * 0.35 : limited
 }
 
 function onTouchEnd() {
+  if (props.busy) return
+  offset.value = offset.value < -48 ? -OPEN_OFFSET : 0
+  horizontalSwipeActive.value = false
+}
+
+function onTouchCancel() {
   if (props.busy) return
   offset.value = offset.value < -48 ? -OPEN_OFFSET : 0
   horizontalSwipeActive.value = false
@@ -113,6 +120,7 @@ function openCard() {
       @touchstart.passive="onTouchStart"
       @touchmove="onTouchMove"
       @touchend="onTouchEnd"
+      @touchcancel="onTouchCancel"
       @tap="openCard"
     >
       <view :class="['task-card__status', { 'task-card__status--done': task.status === 'done', 'task-card__status--busy': busy || isRunning }]">
@@ -142,6 +150,7 @@ function openCard() {
   min-height: 170rpx;
   overflow: hidden;
   border-radius: 34rpx;
+  touch-action: pan-y;
 }
 
 .task-card__delete {
@@ -179,6 +188,7 @@ function openCard() {
   gap: 20rpx;
   padding: 22rpx 24rpx;
   transition: transform 0.22s ease;
+  touch-action: pan-y;
 }
 
 .task-card__inner--busy {

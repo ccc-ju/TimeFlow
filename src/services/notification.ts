@@ -1,5 +1,31 @@
 import type { Locale, NotificationSettings } from '@/types/timeflow'
 
+type NativeReminderActionResult = {
+  errMsg?: string
+}
+
+type NativeReminderModule = {
+  isAvailable?: () => boolean
+  syncReminderSchedule?: (options: {
+    time: string
+    repeatDays: number[]
+    title: string
+    content: string
+    success?: () => void
+    fail?: (result?: NativeReminderActionResult) => void
+  }) => void
+  clearReminderSchedule?: (options: {
+    success?: () => void
+    fail?: (result?: NativeReminderActionResult) => void
+  }) => void
+}
+
+let nativeReminderModule: NativeReminderModule | null = null
+
+// #ifdef APP-ANDROID
+nativeReminderModule = require('../../uni_modules/timeflow-local-notification')
+// #endif
+
 export const NOTIFICATION_REPEAT_DAYS = [1, 2, 3, 4, 5, 6, 0] as const
 
 const SETTINGS_DEFAULT: NotificationSettings = {
@@ -33,6 +59,14 @@ export class NotificationPermissionUnsupportedError extends Error {
 function isAppPushReady() {
   try {
     return typeof plus !== 'undefined' && !!plus.push
+  } catch (error) {
+    return false
+  }
+}
+
+function isAndroidNativeReminderBackend() {
+  try {
+    return typeof plus !== 'undefined' && plus.os?.name === 'Android' && !!nativeReminderModule?.isAvailable?.()
   } catch (error) {
     return false
   }
@@ -466,10 +500,64 @@ export async function ensureNotificationPermission(options?: { openSettingsOnFai
   return true
 }
 
+function clearLegacyPushMessages() {
+  if (!isAppPushReady()) return
+
+  try {
+    plus.push.clear()
+  } catch (error) {
+    console.debug('clear legacy push messages skipped', error)
+  }
+}
+
+function syncAndroidNativeReminderSchedule(
+  settings: NotificationSettings,
+  locale: Locale
+) {
+  return new Promise<void>((resolve, reject) => {
+    const copy = reminderCopy(locale)
+
+    nativeReminderModule?.syncReminderSchedule?.({
+      time: normalizeTime(settings.time),
+      repeatDays: normalizeNotificationRepeatDays(settings.repeatDays),
+      title: copy.title,
+      content: copy.content,
+      success: () => resolve(),
+      fail: (result) => reject(new Error(result?.errMsg || 'syncReminderSchedule failed'))
+    })
+  })
+}
+
+function clearAndroidNativeReminderSchedule() {
+  return new Promise<void>((resolve, reject) => {
+    nativeReminderModule?.clearReminderSchedule?.({
+      success: () => resolve(),
+      fail: (result) => reject(new Error(result?.errMsg || 'clearReminderSchedule failed'))
+    })
+  })
+}
+
 export async function syncDailyNotifications(settings: NotificationSettings, locale: Locale) {
+  await waitForNativeReady()
+
+  if (isAndroidNativeReminderBackend()) {
+    clearLegacyPushMessages()
+
+    if (!settings.enabled) {
+      await clearAndroidNativeReminderSchedule()
+      return
+    }
+
+    await ensureNotificationPermission()
+    await syncAndroidNativeReminderSchedule(settings, locale)
+    return
+  }
+
   await waitForPlusReady()
 
   if (!isAppPushReady()) return
+
+  clearLegacyPushMessages()
 
   if (!settings.enabled) return
 
@@ -479,12 +567,6 @@ export async function syncDailyNotifications(settings: NotificationSettings, loc
     plus.push.setAutoNotification(true)
   } catch (error) {
     console.debug('set auto notification skipped', error)
-  }
-
-  try {
-    plus.push.clear()
-  } catch (error) {
-    return
   }
 
   const copy = reminderCopy(locale)
@@ -523,6 +605,10 @@ export async function registerForegroundReminderListener(
   getLocale: () => Locale,
   onReceive: (payload: { title: string; content: string; at: string }) => void
 ) {
+  await waitForNativeReady()
+
+  if (isAndroidNativeReminderBackend()) return
+
   await waitForPlusReady()
 
   if (!isAppPushReady() || reminderReceiveListenerBound) return
@@ -550,6 +636,10 @@ export function stopForegroundReminderLoop() {
     clearTimeout(foregroundReminderTimer)
     foregroundReminderTimer = null
   }
+}
+
+export function usesNativeForegroundReminderLoop() {
+  return isAndroidNativeReminderBackend()
 }
 
 export function startForegroundReminderLoop(

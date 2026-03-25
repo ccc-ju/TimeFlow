@@ -1,0 +1,8 @@
+{
+  "id": "timeflow-local-notification",
+  "name": "timeflow-local-notification",
+  "displayName": "TimeFlow Local Notification",
+  "version": "1.0.0",
+  "main": "utssdk/index.uts",
+  "uni_modules": {}
+}
