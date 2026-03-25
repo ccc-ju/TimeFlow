@@ -35,7 +35,7 @@ const EXTRA_MINUTE = 'minute'
 const EXTRA_TITLE = 'title'
 const EXTRA_CONTENT = 'content'
 
-function buildResult(errMsg: string, scheduledCount: number = 0): ReminderActionResult {
+function buildResult(errMsg: string, scheduledCount: number): ReminderActionResult {
   return {
     errMsg,
     backend: BACKEND,
@@ -43,7 +43,7 @@ function buildResult(errMsg: string, scheduledCount: number = 0): ReminderAction
   }
 }
 
-function notifyAction(options: ReminderActionOptions | null = null, ok: boolean, errMsg: string, scheduledCount: number = 0) {
+function notifyAction(options: ReminderActionOptions, ok: boolean, errMsg: string, scheduledCount: number) {
   if (options == null) return
   const result = buildResult(errMsg, scheduledCount)
 
@@ -62,7 +62,7 @@ function notifyAction(options: ReminderActionOptions | null = null, ok: boolean,
   }
 }
 
-function notifySchedule(options: ReminderScheduleOptions, ok: boolean, errMsg: string, scheduledCount: number = 0) {
+function notifySchedule(options: ReminderScheduleOptions, ok: boolean, errMsg: string, scheduledCount: number) {
   const result = buildResult(errMsg, scheduledCount)
 
   if (ok) {
@@ -80,7 +80,7 @@ function notifySchedule(options: ReminderScheduleOptions, ok: boolean, errMsg: s
   }
 }
 
-function getContext(): Context | null {
+function getContext() {
   return getAppContext()
 }
 
@@ -387,7 +387,7 @@ export function syncReminderSchedule(options: ReminderScheduleOptions): void {
   const context = getContext()
 
   if (context == null) {
-    notifySchedule(options, false, 'syncReminderSchedule:fail app context unavailable')
+    notifySchedule(options, false, 'syncReminderSchedule:fail app context unavailable', 0)
     return
   }
 
@@ -395,7 +395,7 @@ export function syncReminderSchedule(options: ReminderScheduleOptions): void {
     clearStoredSchedule(context)
     cancelAllAlarms(context)
     clearDisplayedNotifications(context)
-    notifySchedule(options, false, 'syncReminderSchedule:fail repeatDays required')
+    notifySchedule(options, false, 'syncReminderSchedule:fail repeatDays required', 0)
     return
   }
 
@@ -420,15 +420,17 @@ export function syncReminderSchedule(options: ReminderScheduleOptions): void {
 
     notifySchedule(options, true, 'syncReminderSchedule:ok', options.repeatDays.length)
   } catch (error) {
-    notifySchedule(options, false, `syncReminderSchedule:fail ${error}`)
+    notifySchedule(options, false, `syncReminderSchedule:fail ${error}`, 0)
   }
 }
 
-export function clearReminderSchedule(options: ReminderActionOptions | null = null): void {
+export function clearReminderSchedule(options?: ReminderActionOptions): void {
   const context = getContext()
 
   if (context == null) {
-    notifyAction(options, false, 'clearReminderSchedule:fail app context unavailable')
+    if (options != null) {
+      notifyAction(options, false, 'clearReminderSchedule:fail app context unavailable', 0)
+    }
     return
   }
 
@@ -436,8 +438,12 @@ export function clearReminderSchedule(options: ReminderActionOptions | null = nu
     clearStoredSchedule(context)
     cancelAllAlarms(context)
     clearDisplayedNotifications(context)
-    notifyAction(options, true, 'clearReminderSchedule:ok', 0)
+    if (options != null) {
+      notifyAction(options, true, 'clearReminderSchedule:ok', 0)
+    }
   } catch (error) {
-    notifyAction(options, false, `clearReminderSchedule:fail ${error}`)
+    if (options != null) {
+      notifyAction(options, false, `clearReminderSchedule:fail ${error}`, 0)
+    }
   }
 }

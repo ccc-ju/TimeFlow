@@ -24,6 +24,9 @@ build-sign/
 # generated files
 .auto-imports.d.ts
 src/uni_modules/
+!src/uni_modules/
+!src/uni_modules/timeflow-local-notification/
+!src/uni_modules/timeflow-local-notification/**
 unpackage/
 
 # template / scaffold leftovers

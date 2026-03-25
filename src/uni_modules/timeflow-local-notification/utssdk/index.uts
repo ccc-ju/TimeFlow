@@ -1,0 +1,43 @@
+// #ifdef APP-ANDROID
+import {
+  clearReminderSchedule as clearAndroidReminderSchedule,
+  isAvailable as isAndroidReminderAvailable,
+  syncReminderSchedule as syncAndroidReminderSchedule
+} from './app-android/index.uts'
+// #endif
+
+import {
+  ReminderActionOptions,
+  ReminderScheduleOptions
+} from './interface.uts'
+
+export function isAvailable(): boolean {
+  // #ifdef APP-ANDROID
+  return isAndroidReminderAvailable()
+  // #endif
+  return false
+}
+
+export function syncReminderSchedule(options: ReminderScheduleOptions): void {
+  // #ifdef APP-ANDROID
+  syncAndroidReminderSchedule(options)
+  return
+  // #endif
+  options.fail?.({
+    errMsg: 'syncReminderSchedule:fail unsupported',
+    backend: 'unsupported',
+    scheduledCount: 0
+  })
+}
+
+export function clearReminderSchedule(options?: ReminderActionOptions): void {
+  // #ifdef APP-ANDROID
+  clearAndroidReminderSchedule(options)
+  return
+  // #endif
+  options?.fail?.({
+    errMsg: 'clearReminderSchedule:fail unsupported',
+    backend: 'unsupported',
+    scheduledCount: 0
+  })
+}

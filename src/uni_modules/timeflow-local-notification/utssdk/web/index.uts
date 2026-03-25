@@ -14,7 +14,7 @@ function buildResult(errMsg: string): ReminderActionResult {
   }
 }
 
-function notifyAction(options: ReminderActionOptions | null = null, ok: boolean, errMsg: string) {
+function notifyAction(options: ReminderActionOptions, ok: boolean, errMsg: string) {
   if (options == null) return
   const result = buildResult(errMsg)
 
@@ -59,6 +59,6 @@ export function syncReminderSchedule(options: ReminderScheduleOptions): void {
   notifySchedule(options, false, 'syncReminderSchedule:fail unsupported')
 }
 
-export function clearReminderSchedule(options: ReminderActionOptions | null = null): void {
+export function clearReminderSchedule(options: ReminderActionOptions): void {
   notifyAction(options, false, 'clearReminderSchedule:fail unsupported')
 }

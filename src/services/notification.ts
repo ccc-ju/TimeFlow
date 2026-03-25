@@ -20,11 +20,28 @@ type NativeReminderModule = {
   }) => void
 }
 
-let nativeReminderModule: NativeReminderModule | null = null
+let nativeReminderModuleCache: NativeReminderModule | null | undefined
 
-// #ifdef APP-ANDROID
-nativeReminderModule = require('../../uni_modules/timeflow-local-notification')
-// #endif
+function getNativeReminderModule() {
+  if (nativeReminderModuleCache !== undefined) {
+    return nativeReminderModuleCache
+  }
+
+  try {
+    const requireNativePlugin = (uni as any).requireNativePlugin
+    if (typeof requireNativePlugin !== 'function') {
+      nativeReminderModuleCache = null
+      return nativeReminderModuleCache
+    }
+
+    const plugin = requireNativePlugin('timeflow-local-notification') as NativeReminderModule | null
+    nativeReminderModuleCache = plugin && typeof plugin === 'object' ? plugin : null
+    return nativeReminderModuleCache
+  } catch (error) {
+    nativeReminderModuleCache = null
+    return nativeReminderModuleCache
+  }
+}
 
 export const NOTIFICATION_REPEAT_DAYS = [1, 2, 3, 4, 5, 6, 0] as const
 
@@ -66,7 +83,7 @@ function isAppPushReady() {
 
 function isAndroidNativeReminderBackend() {
   try {
-    return typeof plus !== 'undefined' && plus.os?.name === 'Android' && !!nativeReminderModule?.isAvailable?.()
+    return typeof plus !== 'undefined' && plus.os?.name === 'Android' && !!getNativeReminderModule()?.isAvailable?.()
   } catch (error) {
     return false
   }
@@ -517,7 +534,7 @@ function syncAndroidNativeReminderSchedule(
   return new Promise<void>((resolve, reject) => {
     const copy = reminderCopy(locale)
 
-    nativeReminderModule?.syncReminderSchedule?.({
+    getNativeReminderModule()?.syncReminderSchedule?.({
       time: normalizeTime(settings.time),
       repeatDays: normalizeNotificationRepeatDays(settings.repeatDays),
       title: copy.title,
@@ -530,7 +547,7 @@ function syncAndroidNativeReminderSchedule(
 
 function clearAndroidNativeReminderSchedule() {
   return new Promise<void>((resolve, reject) => {
-    nativeReminderModule?.clearReminderSchedule?.({
+    getNativeReminderModule()?.clearReminderSchedule?.({
       success: () => resolve(),
       fail: (result) => reject(new Error(result?.errMsg || 'clearReminderSchedule failed'))
     })
