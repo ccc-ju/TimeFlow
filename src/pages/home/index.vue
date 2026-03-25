@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, getCurrentInstance, nextTick, ref } from 'vue'
+import { computed, getCurrentInstance, ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 
 import EchartBox from '@/components/charts/echart-box.vue'
@@ -24,7 +24,6 @@ const posterVisible = ref(false)
 const posterPath = ref('')
 const posterBuilding = ref(false)
 const activeTab = ref<'home' | 'calendar' | 'statistics' | 'profile'>('home')
-const shellScrollTop = ref(0)
 
 const tabOrder = ['home', 'calendar', 'statistics', 'profile'] as const
 
@@ -441,12 +440,12 @@ function closePoster() {
 }
 
 function resetShellScroll() {
-  shellScrollTop.value = 1
-  nextTick(() => {
-    setTimeout(() => {
-      shellScrollTop.value = 0
-    }, 16)
-  })
+  setTimeout(() => {
+    uni.pageScrollTo({
+      scrollTop: 0,
+      duration: 0
+    })
+  }, 0)
 }
 
 function handleTabChange(nextTab: 'home' | 'calendar' | 'statistics' | 'profile') {
@@ -464,7 +463,6 @@ function handleTabChange(nextTab: 'home' | 'calendar' | 'statistics' | 'profile'
     :current-tab="activeTab"
     :show-dock="!sheetVisible && !posterVisible"
     :persistent-tabs="true"
-    :scroll-top="shellScrollTop"
     @change-tab="handleTabChange"
   >
     <template #header-extra>

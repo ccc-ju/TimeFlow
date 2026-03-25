@@ -3,29 +3,25 @@
     {
       "path": "pages/home/index",
       "style": {
-        "navigationStyle": "custom",
-        "disableScroll": true
+        "navigationStyle": "custom"
       }
     },
     {
       "path": "pages/calendar/index",
       "style": {
-        "navigationStyle": "custom",
-        "disableScroll": true
+        "navigationStyle": "custom"
       }
     },
     {
       "path": "pages/statistics/index",
       "style": {
-        "navigationStyle": "custom",
-        "disableScroll": true
+        "navigationStyle": "custom"
       }
     },
     {
       "path": "pages/profile/index",
       "style": {
-        "navigationStyle": "custom",
-        "disableScroll": true
+        "navigationStyle": "custom"
       }
     },
     {

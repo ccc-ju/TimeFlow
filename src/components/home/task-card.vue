@@ -20,7 +20,9 @@ const appStore = useAppStore()
 const taskStore = useTaskStore()
 const offset = ref(0)
 const startX = ref(0)
+const startY = ref(0)
 const startOffset = ref(0)
+const horizontalSwipeActive = ref(false)
 const OPEN_OFFSET = 112
 const MAX_DRAG = 156
 
@@ -54,12 +56,30 @@ const detailLabel = computed(() => {
 function onTouchStart(event: TouchEvent) {
   if (props.busy) return
   startX.value = event.touches[0].clientX
+  startY.value = event.touches[0].clientY
   startOffset.value = offset.value
+  horizontalSwipeActive.value = false
 }
 
 function onTouchMove(event: TouchEvent) {
   if (props.busy) return
-  const delta = event.touches[0].clientX - startX.value + startOffset.value
+  const deltaX = event.touches[0].clientX - startX.value
+  const deltaY = event.touches[0].clientY - startY.value
+
+  if (!horizontalSwipeActive.value) {
+    if (Math.abs(deltaY) > Math.abs(deltaX)) {
+      return
+    }
+
+    if (Math.abs(deltaX) < 8) {
+      return
+    }
+
+    horizontalSwipeActive.value = true
+  }
+
+  event.preventDefault()
+  const delta = deltaX + startOffset.value
   const limited = Math.max(-MAX_DRAG, Math.min(0, delta))
   offset.value = limited < -OPEN_OFFSET ? -OPEN_OFFSET + (limited + OPEN_OFFSET) * 0.35 : limited
 }
@@ -67,6 +87,7 @@ function onTouchMove(event: TouchEvent) {
 function onTouchEnd() {
   if (props.busy) return
   offset.value = offset.value < -48 ? -OPEN_OFFSET : 0
+  horizontalSwipeActive.value = false
 }
 
 function openCard() {
@@ -90,7 +111,7 @@ function openCard() {
       :class="['task-card__inner glass-card', { 'task-card__inner--busy': busy }]"
       :style="{ transform: `translateX(${offset}rpx)` }"
       @touchstart.passive="onTouchStart"
-      @touchmove.prevent="onTouchMove"
+      @touchmove="onTouchMove"
       @touchend="onTouchEnd"
       @tap="openCard"
     >

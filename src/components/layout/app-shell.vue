@@ -281,14 +281,7 @@ watch(trackWidthPx, () => {
       </view>
       <text class="app-shell__reminder-action">{{ appStore.t('notificationAcknowledge') }}</text>
     </view>
-    <scroll-view
-      scroll-y
-      class="app-shell__scroll"
-      :style="scrollStyle"
-      :scroll-top="scrollTop"
-      :scroll-with-animation="scrollWithAnimation"
-      @scroll="$emit('scroll', $event)"
-    >
+    <view class="app-shell__scroll" :style="scrollStyle">
       <view class="app-shell__header">
         <view class="app-shell__heading">
           <text v-if="subtitle" class="app-shell__subtitle">{{ subtitle }}</text>
@@ -298,7 +291,7 @@ watch(trackWidthPx, () => {
       </view>
       <slot />
       <view class="safe-bottom-space" />
-    </scroll-view>
+    </view>
 
     <view
       v-if="showDock"
@@ -331,7 +324,6 @@ watch(trackWidthPx, () => {
 .app-shell {
   position: relative;
   min-height: 100vh;
-  overflow: hidden;
   color: var(--tf-text-primary);
   background:
     radial-gradient(circle at top right, var(--tf-page-gradient-blue), transparent 34%),
@@ -340,7 +332,7 @@ watch(trackWidthPx, () => {
 }
 
 .app-shell__scroll {
-  height: 100vh;
+  min-height: 100vh;
   padding-left: 28rpx;
   padding-right: 28rpx;
   padding-bottom: 0;

@@ -19,7 +19,9 @@ const isCollapsed = ref(true)
 const rowOffsets = ref<Record<string, number>>({})
 const activeSwipeId = ref('')
 const touchStartX = ref(0)
+const touchStartY = ref(0)
 const touchStartOffset = ref(0)
+const horizontalSwipeActive = ref(false)
 const deletingTaskId = ref('')
 
 const OPEN_OFFSET = 112
@@ -162,13 +164,31 @@ function onRowTouchStart(event: TouchEvent, taskId: string) {
 
   activeSwipeId.value = taskId
   touchStartX.value = event.touches[0].clientX
+  touchStartY.value = event.touches[0].clientY
   touchStartOffset.value = rowOffset(taskId)
+  horizontalSwipeActive.value = false
 }
 
 function onRowTouchMove(event: TouchEvent, taskId: string) {
   if (deletingTaskId.value) return
 
-  const delta = event.touches[0].clientX - touchStartX.value + touchStartOffset.value
+  const deltaX = event.touches[0].clientX - touchStartX.value
+  const deltaY = event.touches[0].clientY - touchStartY.value
+
+  if (!horizontalSwipeActive.value) {
+    if (Math.abs(deltaY) > Math.abs(deltaX)) {
+      return
+    }
+
+    if (Math.abs(deltaX) < 8) {
+      return
+    }
+
+    horizontalSwipeActive.value = true
+  }
+
+  event.preventDefault()
+  const delta = deltaX + touchStartOffset.value
   const limited = Math.max(-MAX_DRAG, Math.min(0, delta))
   const nextOffset = limited < -OPEN_OFFSET ? -OPEN_OFFSET + (limited + OPEN_OFFSET) * 0.35 : limited
 
@@ -181,6 +201,7 @@ function onRowTouchEnd(taskId: string) {
   const nextOffset = rowOffset(taskId) < -48 ? -OPEN_OFFSET : 0
   setRowOffset(taskId, nextOffset)
   activeSwipeId.value = nextOffset ? taskId : ''
+  horizontalSwipeActive.value = false
 }
 
 async function deleteTask(taskId: string) {
@@ -280,7 +301,7 @@ async function deleteTask(taskId: string) {
           :class="['review__item', 'glass-card', { 'review__item--busy': deletingTaskId === task.id || taskStore.isTaskPending(task.id) }]"
           :style="{ transform: `translateX(${rowOffset(task.id)}rpx)` }"
           @touchstart.passive="onRowTouchStart($event, task.id)"
-          @touchmove.prevent="onRowTouchMove($event, task.id)"
+          @touchmove="onRowTouchMove($event, task.id)"
           @touchend="onRowTouchEnd(task.id)"
           @tap="openTask(task.id)"
         >
