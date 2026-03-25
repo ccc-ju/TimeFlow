@@ -1,12 +1,7 @@
 <script setup lang="ts">
-import { watch } from 'vue'
 import { onHide, onLaunch, onShow } from '@dcloudio/uni-app'
 
-import {
-  registerForegroundReminderListener,
-  startForegroundReminderLoop,
-  stopForegroundReminderLoop
-} from '@/services/notification'
+import { registerForegroundReminderListener } from '@/services/notification'
 import { useAppStore } from '@/store/app'
 import { useTaskStore } from '@/store/tasks'
 import { haptic } from '@/utils/feedback'
@@ -42,26 +37,6 @@ async function ensureReminderListener() {
   reminderListenerReady = true
 }
 
-function syncForegroundReminderLoop() {
-  const appStore = useAppStore()
-  startForegroundReminderLoop(appStore.notificationSettings, appStore.locale, triggerForegroundReminder)
-}
-
-watch(
-  () => {
-    const appStore = useAppStore()
-    return JSON.stringify({
-      enabled: appStore.notificationSettings.enabled,
-      time: appStore.notificationSettings.time,
-      repeatDays: appStore.notificationSettings.repeatDays,
-      locale: appStore.locale
-    })
-  },
-  () => {
-    syncForegroundReminderLoop()
-  }
-)
-
 function startDaySyncTicker() {
   if (daySyncTimer) return
   daySyncTimer = setInterval(() => {
@@ -83,7 +58,6 @@ onLaunch(async () => {
 
   await appStore.bootstrap()
   await taskStore.bootstrap()
-  syncForegroundReminderLoop()
   await syncDailyState()
   startDaySyncTicker()
 })
@@ -95,21 +69,11 @@ onShow(async () => {
     console.warn('reconcile notification permission skipped', error)
   })
   await ensureReminderListener()
-  if (appStore.notificationSettings.enabled) {
-    try {
-      await appStore.syncNotifications()
-    } catch (error) {
-      console.warn('resync notifications skipped', error)
-      await appStore.setNotificationEnabled(false).catch(() => undefined)
-    }
-  }
-  syncForegroundReminderLoop()
   startDaySyncTicker()
 })
 
 onHide(() => {
   stopDaySyncTicker()
-  stopForegroundReminderLoop()
 })
 </script>
 
