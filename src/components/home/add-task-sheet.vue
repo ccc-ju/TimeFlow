@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 
+import DateSelectSheet from '@/components/common/date-select-sheet.vue'
 import { useAppStore } from '@/store/app'
 import type { TimerMode } from '@/types/timeflow'
 import { toDayKey } from '@/utils/date'
@@ -44,6 +45,7 @@ const title = ref('')
 const timerMode = ref<TimerMode>('countup')
 const durationMinutes = ref('25')
 const scheduledDate = ref(toDayKey())
+const dateSheetVisible = ref(false)
 
 const submitDisabled = computed(() => !title.value.trim() || props.submitting)
 const isCountdown = computed(() => timerMode.value === 'countdown')
@@ -62,6 +64,16 @@ watch(
 function closeSheet() {
   if (props.submitting) return
   emit('close')
+}
+
+function openDateSheet() {
+  if (props.submitting) return
+  dateSheetVisible.value = true
+}
+
+function updateScheduledDate(value: string) {
+  scheduledDate.value = value || toDayKey()
+  dateSheetVisible.value = false
 }
 
 function submit() {
@@ -96,11 +108,9 @@ function submit() {
 
         <view class="sheet__field">
           <text class="sheet__label">{{ appStore.t('taskDate') }}</text>
-          <picker mode="date" :value="scheduledDate" @change="scheduledDate = $event.detail.value">
-            <view class="sheet__picker">
-              <text class="sheet__picker-value">{{ scheduledDate }}</text>
-            </view>
-          </picker>
+          <view class="sheet__picker" @tap="openDateSheet">
+            <text class="sheet__picker-value">{{ scheduledDate }}</text>
+          </view>
         </view>
 
         <view class="sheet__field">
@@ -147,6 +157,17 @@ function submit() {
         </button>
       </view>
     </view>
+
+    <DateSelectSheet
+      :visible="dateSheetVisible"
+      :value="scheduledDate"
+      :locale="appStore.locale"
+      :title="appStore.t('taskDate')"
+      :cancel-text="appStore.t('cancel')"
+      :confirm-text="submitText || appStore.t('saveChanges')"
+      @close="dateSheetVisible = false"
+      @confirm="updateScheduledDate"
+    />
   </view>
 </template>
 
@@ -237,7 +258,18 @@ function submit() {
   border-radius: 24rpx;
   display: flex;
   align-items: center;
+  justify-content: space-between;
   background: var(--tf-surface-soft);
+}
+
+.sheet__picker::after {
+  content: '';
+  width: 14rpx;
+  height: 14rpx;
+  border-right: 2px solid rgba(29, 43, 59, 0.42);
+  border-bottom: 2px solid rgba(29, 43, 59, 0.42);
+  transform: rotate(45deg);
+  margin-top: -8rpx;
 }
 
 .sheet__picker-value {

@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 
+import TimeSelectSheet from '@/components/common/time-select-sheet.vue'
 import AppShell from '@/components/layout/app-shell.vue'
 import { useAppStore } from '@/store/app'
 import { useTaskStore } from '@/store/tasks'
@@ -20,9 +21,20 @@ const locales = computed(() => [
   { key: 'zh-CN' as Locale, label: '简体中文' },
   { key: 'en' as Locale, label: 'English' }
 ])
+const repeatOptions = computed(() => [
+  { value: 1, label: appStore.t('weekdayMonShort') },
+  { value: 2, label: appStore.t('weekdayTueShort') },
+  { value: 3, label: appStore.t('weekdayWedShort') },
+  { value: 4, label: appStore.t('weekdayThuShort') },
+  { value: 5, label: appStore.t('weekdayFriShort') },
+  { value: 6, label: appStore.t('weekdaySatShort') },
+  { value: 0, label: appStore.t('weekdaySunShort') }
+])
 
 const themeThumbStyle = computed(() => buildThumbStyle(themes.value.length, themes.value.findIndex((item) => item.key === appStore.themeMode)))
 const localeThumbStyle = computed(() => buildThumbStyle(locales.value.length, locales.value.findIndex((item) => item.key === appStore.locale)))
+const timeSheetVisible = ref(false)
+const notificationLocked = computed(() => !appStore.notificationPermissionGranted)
 
 function buildThumbStyle(total: number, index: number) {
   const safeIndex = Math.max(0, index)
@@ -44,15 +56,34 @@ function selectLocale(locale: Locale) {
   appStore.setLocale(locale)
 }
 
+function showNotificationLockedToast() {
+  uni.showToast({
+    title: appStore.t('notificationPermissionLocked'),
+    icon: 'none'
+  })
+}
+
 async function toggleNotifications(value: boolean) {
+  if (notificationLocked.value) {
+    showNotificationLockedToast()
+    return
+  }
+
+  if (value) {
+    appStore.setNotificationPermissionPending(true)
+  } else {
+    appStore.setNotificationPermissionPending(false)
+  }
+
   try {
     await appStore.setNotificationEnabled(value)
+    appStore.setNotificationPermissionPending(false)
     uni.showToast({
       title: appStore.t(value ? 'notificationOn' : 'notificationOff'),
       icon: 'none'
     })
   } catch (error) {
-    await appStore.setNotificationEnabled(false).catch(() => undefined)
+    await appStore.forceNotificationDisabled(value).catch(() => undefined)
     uni.showToast({
       title: appStore.t('notificationPermissionDenied'),
       icon: 'none'
@@ -60,12 +91,52 @@ async function toggleNotifications(value: boolean) {
   }
 }
 
-async function updateNotificationTime(event: { detail?: { value?: string } }) {
-  const nextTime = event.detail?.value || '21:00'
+async function updateNotificationTime(nextTime: string) {
   try {
     await appStore.setNotificationTime(nextTime)
+    timeSheetVisible.value = false
     uni.showToast({
       title: appStore.t('notificationUpdated'),
+      icon: 'none'
+    })
+  } catch (error) {
+    uni.showToast({
+      title: appStore.t('notificationPermissionDenied'),
+      icon: 'none'
+    })
+  }
+}
+
+function openTimeSheet() {
+  if (notificationLocked.value) {
+    showNotificationLockedToast()
+    return
+  }
+  timeSheetVisible.value = true
+}
+
+async function toggleRepeatDay(day: number) {
+  if (notificationLocked.value) {
+    showNotificationLockedToast()
+    return
+  }
+
+  const current = appStore.notificationSettings.repeatDays
+  const hasDay = current.includes(day)
+  const nextDays = hasDay ? current.filter((item) => item !== day) : [...current, day]
+
+  if (!nextDays.length) {
+    uni.showToast({
+      title: appStore.t('notificationRepeatRequired'),
+      icon: 'none'
+    })
+    return
+  }
+
+  try {
+    await appStore.setNotificationRepeatDays(nextDays)
+    uni.showToast({
+      title: appStore.t('notificationRepeatUpdated'),
       icon: 'none'
     })
   } catch (error) {
@@ -109,6 +180,11 @@ onShow(async () => {
   if (!taskStore.initialized) {
     await taskStore.bootstrap()
   }
+
+  const status = await appStore.reconcileNotificationPermission().catch(() => 'idle')
+  if (status === 'enabled') {
+    appStore.setNotificationPermissionPending(false)
+  }
 })
 </script>
 
@@ -145,30 +221,44 @@ onShow(async () => {
     </view>
 
     <view class="panel glass-card">
-      <view class="panel__row">
+      <view class="panel__row" @tap="notificationLocked ? showNotificationLockedToast() : undefined">
         <view class="panel__copy">
           <text class="panel__title panel__title--compact">{{ appStore.t('notificationTitle') }}</text>
           <text class="panel__description">{{ appStore.t('notificationDesc') }}</text>
         </view>
         <switch
           :checked="appStore.notificationSettings.enabled"
+          :disabled="notificationLocked"
           color="#7AB3EF"
           @change="toggleNotifications($event.detail.value)"
         />
       </view>
+      <text v-if="notificationLocked" class="panel__permission-tip">{{ appStore.t('notificationPermissionLocked') }}</text>
 
-      <picker mode="time" :value="appStore.notificationSettings.time" @change="updateNotificationTime">
-        <view
-          v-if="appStore.notificationSettings.enabled"
-          :class="['notification-time', { 'notification-time--disabled': !appStore.notificationSettings.enabled }]"
-        >
-          <view class="notification-time__copy">
-            <text class="notification-time__label">{{ appStore.t('notificationTime') }}</text>
-            <text class="notification-time__hint">{{ appStore.t('notificationTimeHint') }}</text>
-          </view>
+      <view v-if="appStore.notificationSettings.enabled" class="notification-time" @tap="openTimeSheet">
+        <text class="notification-time__label">{{ appStore.t('notificationTime') }}</text>
+        <view class="notification-time__value-wrap">
           <text class="notification-time__value">{{ appStore.notificationSettings.time }}</text>
         </view>
-      </picker>
+      </view>
+
+      <view v-if="appStore.notificationSettings.enabled" class="notification-repeat">
+        <text class="notification-time__label">{{ appStore.t('notificationRepeat') }}</text>
+
+        <view class="notification-repeat__grid">
+          <view
+            v-for="item in repeatOptions"
+            :key="item.value"
+            :class="[
+              'notification-repeat__chip',
+              { 'notification-repeat__chip--active': appStore.notificationSettings.repeatDays.includes(item.value) }
+            ]"
+            @tap="toggleRepeatDay(item.value)"
+          >
+            {{ item.label }}
+          </view>
+        </view>
+      </view>
     </view>
 
     <view class="wallpaper glass-card" @tap="previewWallpaper" @longpress="saveWallpaper">
@@ -176,6 +266,16 @@ onShow(async () => {
       <image class="wallpaper__image" :src="appStore.wallpaper.url" mode="aspectFill" />
       <text class="wallpaper__hint">{{ appStore.t('wallpaperHint') }}</text>
     </view>
+
+    <TimeSelectSheet
+      :visible="timeSheetVisible"
+      :value="appStore.notificationSettings.time"
+      :title="appStore.t('notificationTime')"
+      :cancel-text="appStore.t('cancel')"
+      :confirm-text="appStore.t('saveChanges')"
+      @close="timeSheetVisible = false"
+      @confirm="updateNotificationTime"
+    />
   </AppShell>
 </template>
 
@@ -195,13 +295,21 @@ onShow(async () => {
 }
 
 .panel__title--compact {
-  margin-bottom: 8rpx;
+  margin-bottom: 4rpx;
 }
 
 .panel__description {
   color: var(--tf-text-secondary);
-  font-size: 26rpx;
-  line-height: 1.7;
+  font-size: 24rpx;
+  line-height: 1.42;
+}
+
+.panel__permission-tip {
+  display: block;
+  margin-top: 10rpx;
+  color: #ff8b94;
+  font-size: 22rpx;
+  line-height: 1.5;
 }
 
 .panel__row {
@@ -260,42 +368,72 @@ onShow(async () => {
 }
 
 .notification-time {
-  margin-top: 22rpx;
-  padding: 22rpx 24rpx;
-  border-radius: 24rpx;
+  margin-top: 8rpx;
+  padding: 14rpx 20rpx;
+  border-radius: 20rpx;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16rpx;
+  gap: 12rpx;
   background: var(--tf-control-surface);
-}
-
-.notification-time--disabled {
-  opacity: 0.54;
-}
-
-.notification-time__copy {
-  display: flex;
-  flex-direction: column;
-  gap: 8rpx;
 }
 
 .notification-time__label {
   color: var(--tf-text-primary);
-  font-size: 28rpx;
+  font-size: 27rpx;
   font-weight: 600;
 }
 
-.notification-time__hint {
-  color: var(--tf-text-secondary);
-  font-size: 22rpx;
-  line-height: 1.5;
+.notification-time__value-wrap {
+  min-width: 132rpx;
+  padding: 10rpx 14rpx;
+  border-radius: 16rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.2);
 }
 
 .notification-time__value {
   color: var(--tf-text-primary);
-  font-size: 38rpx;
+  font-size: 30rpx;
   font-weight: 700;
+}
+
+.notification-repeat {
+  margin-top: 0;
+  padding: 12rpx 20rpx 20rpx;
+  border-radius: 20rpx;
+  background: var(--tf-control-surface);
+}
+
+.notification-repeat__grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10rpx;
+  margin-top: 10rpx;
+}
+
+.notification-repeat__chip {
+  min-height: 62rpx;
+  border-radius: 18rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: var(--tf-text-secondary);
+  font-size: 22rpx;
+  background: rgba(255, 255, 255, 0.16);
+  transition:
+    transform 0.24s ease,
+    color 0.24s ease,
+    background 0.24s ease;
+}
+
+.notification-repeat__chip--active {
+  color: #173349;
+  background: linear-gradient(135deg, rgba(168, 230, 207, 0.96), rgba(122, 179, 239, 0.82));
+  transform: translateY(-1rpx);
 }
 
 .wallpaper__image {

@@ -6,6 +6,7 @@ export type Locale = 'zh-CN' | 'en'
 export interface NotificationSettings {
   enabled: boolean
   time: string
+  repeatDays: number[]
 }
 
 export interface WallpaperPayload {

@@ -46,6 +46,10 @@ const dockStyle = computed(() => ({
   bottom: `${safeBottomInset + 12}px`
 }))
 
+const reminderStyle = computed(() => ({
+  top: `${safeTopInset + 10}px`
+}))
+
 const bottomFillStyle = computed(() => ({
   height: `${safeBottomInset + 30}px`
 }))
@@ -70,6 +74,8 @@ const isDragging = ref(false)
 const dragStartX = ref(0)
 const dragStartLeft = ref(0)
 const dragLeft = ref(0)
+let dragFrame: ReturnType<typeof setTimeout> | number = 0
+let pendingDragLeft: number | null = null
 
 const tabWidthPx = computed(() => Math.max((trackWidthPx.value - dockGapPx * (tabs.value.length - 1)) / tabs.value.length, 0))
 const slideStepPx = computed(() => tabWidthPx.value + dockGapPx)
@@ -78,9 +84,38 @@ const thumbStyle = computed(() => {
   const left = isDragging.value ? dragLeft.value : animatedIndex.value * slideStepPx.value
   return {
     width: `${tabWidthPx.value}px`,
-    left: `${Math.max(0, left)}px`
+    transform: `translate3d(${Math.max(0, left)}px, 0, 0)`
   }
 })
+
+function flushDragFrame() {
+  if (pendingDragLeft === null) return
+  dragLeft.value = pendingDragLeft
+  pendingDragLeft = null
+  dragFrame = 0
+}
+
+function requestFrame(callback: () => void) {
+  if (typeof requestAnimationFrame === 'function') {
+    return requestAnimationFrame(callback)
+  }
+  return setTimeout(callback, 16)
+}
+
+function cancelFrame(frame: ReturnType<typeof setTimeout> | number) {
+  if (!frame) return
+  if (typeof cancelAnimationFrame === 'function' && typeof frame === 'number') {
+    cancelAnimationFrame(frame)
+    return
+  }
+  clearTimeout(frame as ReturnType<typeof setTimeout>)
+}
+
+function scheduleDragLeft(value: number) {
+  pendingDragLeft = value
+  if (dragFrame) return
+  dragFrame = requestFrame(flushDragFrame)
+}
 
 function measureDockTrack() {
   nextTick(() => {
@@ -159,11 +194,15 @@ function onDockTouchMove(event: { touches?: Array<{ clientX?: number }> }) {
   if (!isDragging.value) return
   const clientX = event.touches?.[0]?.clientX
   if (typeof clientX !== 'number') return
-  dragLeft.value = clampDrag(dragStartLeft.value + clientX - dragStartX.value)
+  scheduleDragLeft(clampDrag(dragStartLeft.value + clientX - dragStartX.value))
 }
 
 function onDockTouchEnd() {
   if (!isDragging.value) return
+  if (dragFrame) {
+    cancelFrame(dragFrame)
+    flushDragFrame()
+  }
   const nextIndex = Math.round(clampDrag(dragLeft.value) / slideStepPx.value)
   isDragging.value = false
   animateThumbTo(nextIndex)
@@ -217,6 +256,12 @@ watch(
   },
   { immediate: true }
 )
+
+watch(trackWidthPx, () => {
+  if (!isDragging.value && !navigating.value) {
+    animateThumbTo(currentIndex.value)
+  }
+})
 </script>
 
 <template>
@@ -224,6 +269,18 @@ watch(
     <view class="app-shell__orb app-shell__orb--mint" />
     <view class="app-shell__orb app-shell__orb--blue" />
     <view class="app-shell__bottom-fill" :style="bottomFillStyle" />
+    <view
+      v-if="appStore.reminderBanner.visible"
+      class="app-shell__reminder glass-card"
+      :style="reminderStyle"
+      @tap="appStore.hideReminderBanner()"
+    >
+      <view class="app-shell__reminder-copy">
+        <text class="app-shell__reminder-title">{{ appStore.reminderBanner.title }}</text>
+        <text class="app-shell__reminder-content">{{ appStore.reminderBanner.content }}</text>
+      </view>
+      <text class="app-shell__reminder-action">{{ appStore.t('notificationAcknowledge') }}</text>
+    </view>
     <scroll-view
       scroll-y
       class="app-shell__scroll"
@@ -287,6 +344,49 @@ watch(
   padding-left: 28rpx;
   padding-right: 28rpx;
   padding-bottom: 0;
+}
+
+.app-shell__reminder {
+  position: fixed;
+  left: 28rpx;
+  right: 28rpx;
+  z-index: 45;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20rpx;
+  padding: 22rpx 24rpx;
+  animation: reminder-in 0.22s ease;
+}
+
+.app-shell__reminder-copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+}
+
+.app-shell__reminder-title {
+  color: var(--tf-text-primary);
+  font-size: 28rpx;
+  font-weight: 700;
+}
+
+.app-shell__reminder-content {
+  color: var(--tf-text-secondary);
+  font-size: 24rpx;
+  line-height: 1.5;
+}
+
+.app-shell__reminder-action {
+  flex-shrink: 0;
+  color: #173349;
+  font-size: 24rpx;
+  font-weight: 700;
+  padding: 12rpx 18rpx;
+  border-radius: 999rpx;
+  background: linear-gradient(135deg, rgba(168, 230, 207, 0.9), rgba(122, 179, 239, 0.82));
 }
 
 .app-shell__header {
@@ -370,10 +470,12 @@ watch(
   position: absolute;
   top: 0;
   bottom: 0;
+  left: 0;
   border-radius: 24rpx;
   background: linear-gradient(135deg, rgba(168, 230, 207, 0.36), rgba(122, 179, 239, 0.26));
+  will-change: transform;
   transition:
-    left 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
     width 0.24s ease;
 }
 
@@ -387,7 +489,7 @@ watch(
   padding: 14rpx 0;
   border-radius: 24rpx;
   color: var(--tf-text-muted);
-  transition: all 0.24s ease;
+  transition: color 0.24s ease;
 }
 
 .dock-item--active {
@@ -414,5 +516,17 @@ watch(
 .dock-item__label {
   font-size: 22rpx;
   line-height: 1;
+}
+
+@keyframes reminder-in {
+  from {
+    opacity: 0;
+    transform: translateY(-16rpx) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 </style>

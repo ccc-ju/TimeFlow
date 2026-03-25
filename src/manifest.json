@@ -51,6 +51,7 @@
                 }
             },
             "android" : {
+                "targetSdkVersion" : 35,
                 "permissions" : [
                     "<uses-permission android:name=\"android.permission.VIBRATE\"/>",
                     "<uses-permission android:name=\"android.permission.POST_NOTIFICATIONS\"/>",
@@ -59,7 +60,8 @@
                 ]
             },
             "ios" : {
-                "pushRegisterMode" : "manual"
+                "pushRegisterMode" : "manual",
+                "dSYMs" : false
             },
             "sdkConfigs" : {}
         }

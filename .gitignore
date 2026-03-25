@@ -24,6 +24,7 @@ build-sign/
 # generated files
 .auto-imports.d.ts
 src/uni_modules/
+unpackage/
 
 # template / scaffold leftovers
 _starter_alt/
