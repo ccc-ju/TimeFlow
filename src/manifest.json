@@ -2,7 +2,7 @@
     "name" : "TimeFlow",
     "appid" : "__UNI__A7A13D3",
     "description" : "A beautiful focus-driven todo app built with uni-app.",
-    "versionName" : "1.0.0",
+    "versionName" : "1.0.1",
     "versionCode" : 1,
     "transformPx" : false,
     "app-plus" : {
@@ -15,6 +15,13 @@
         },
         "compatible" : {
             "ignoreVersion" : true
+        },
+        "safearea" : {
+            "background" : "#F7FBFF",
+            "backgroundDark" : "#141B22",
+            "bottom" : {
+                "offset" : "none"
+            }
         },
         "splashscreen" : {
             "alwaysShowBeforeRender" : true,

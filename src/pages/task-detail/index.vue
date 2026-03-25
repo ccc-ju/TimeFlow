@@ -192,6 +192,8 @@ onLoad((query) => {
         <button class="detail__primary" @tap="finishTask">{{ appStore.t('finishTask') }}</button>
       </view>
 
+      <view v-if="!isCompletedTask && isNoTimerTask && !isFutureTask" class="detail__notimer-spacer" />
+
       <view v-if="!isCompletedTask && isNoTimerTask && !isFutureTask" class="detail__actions">
         <button class="detail__secondary" @tap="backToList">{{ appStore.t('backToList') }}</button>
         <button class="detail__primary" @tap="finishTask">{{ appStore.t('finishTask') }}</button>
@@ -292,7 +294,7 @@ onLoad((query) => {
 }
 
 .detail__content--notimer {
-  justify-content: space-between;
+  justify-content: flex-start;
   padding-top: 220rpx;
 }
 
@@ -314,6 +316,12 @@ onLoad((query) => {
   margin-top: 68rpx;
   padding: 72rpx 24rpx;
   text-align: center;
+}
+
+.detail__notimer-spacer {
+  width: 100%;
+  min-height: 280rpx;
+  margin-top: 68rpx;
 }
 
 .detail__clock {
