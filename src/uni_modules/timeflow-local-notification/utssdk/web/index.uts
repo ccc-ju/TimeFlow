@@ -6,17 +6,20 @@ import {
 
 const BACKEND = 'unsupported'
 
-function buildResult(errMsg: string): ReminderActionResult {
+function buildResult(errMsg: string, scheduleMode: string): ReminderActionResult {
   return {
     errMsg,
     backend: BACKEND,
-    scheduledCount: 0
+    scheduledCount: 0,
+    scheduleMode,
+    exactAlarmSupported: false,
+    exactAlarmGranted: false
   }
 }
 
 function notifyAction(options: ReminderActionOptions, ok: boolean, errMsg: string) {
   if (options == null) return
-  const result = buildResult(errMsg)
+  const result = buildResult(errMsg, 'disabled')
 
   if (ok) {
     if (options.success != null) {
@@ -34,7 +37,7 @@ function notifyAction(options: ReminderActionOptions, ok: boolean, errMsg: strin
 }
 
 function notifySchedule(options: ReminderScheduleOptions, ok: boolean, errMsg: string) {
-  const result = buildResult(errMsg)
+  const result = buildResult(errMsg, 'unsupported')
 
   if (ok) {
     if (options.success != null) {

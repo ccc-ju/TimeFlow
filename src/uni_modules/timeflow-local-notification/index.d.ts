@@ -2,6 +2,9 @@ export interface ReminderActionResult {
   errMsg: string
   backend: string
   scheduledCount: number
+  scheduleMode?: string
+  exactAlarmSupported?: boolean
+  exactAlarmGranted?: boolean
 }
 
 export interface ReminderActionOptions {

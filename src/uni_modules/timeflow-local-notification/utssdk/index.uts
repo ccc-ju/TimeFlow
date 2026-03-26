@@ -26,7 +26,10 @@ export function syncReminderSchedule(options: ReminderScheduleOptions): void {
   options.fail?.({
     errMsg: 'syncReminderSchedule:fail unsupported',
     backend: 'unsupported',
-    scheduledCount: 0
+    scheduledCount: 0,
+    scheduleMode: 'unsupported',
+    exactAlarmSupported: false,
+    exactAlarmGranted: false
   })
 }
 
@@ -38,6 +41,9 @@ export function clearReminderSchedule(options?: ReminderActionOptions): void {
   options?.fail?.({
     errMsg: 'clearReminderSchedule:fail unsupported',
     backend: 'unsupported',
-    scheduledCount: 0
+    scheduledCount: 0,
+    scheduleMode: 'disabled',
+    exactAlarmSupported: false,
+    exactAlarmGranted: false
   })
 }

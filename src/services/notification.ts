@@ -1,7 +1,12 @@
-import type { Locale, NotificationSettings } from '@/types/timeflow'
+import type { Locale, NotificationRuntimeState, NotificationSettings } from '@/types/timeflow'
 
 type NativeReminderActionResult = {
   errMsg?: string
+  backend?: string
+  scheduledCount?: number
+  scheduleMode?: string
+  exactAlarmSupported?: boolean
+  exactAlarmGranted?: boolean
 }
 
 type NativeReminderModule = {
@@ -11,16 +16,19 @@ type NativeReminderModule = {
     repeatDays: number[]
     title: string
     content: string
-    success?: () => void
+    success?: (result?: NativeReminderActionResult) => void
     fail?: (result?: NativeReminderActionResult) => void
   }) => void
   clearReminderSchedule?: (options: {
-    success?: () => void
+    success?: (result?: NativeReminderActionResult) => void
     fail?: (result?: NativeReminderActionResult) => void
   }) => void
 }
 
 let nativeReminderModuleCache: NativeReminderModule | null | undefined
+let shellReminderSchedulerCache: any | null | undefined
+
+type AndroidReminderDriver = 'plugin' | 'shell'
 
 function getNativeReminderModule() {
   if (nativeReminderModuleCache !== undefined) {
@@ -43,6 +51,26 @@ function getNativeReminderModule() {
   }
 }
 
+function getShellReminderScheduler() {
+  if (shellReminderSchedulerCache !== undefined) {
+    return shellReminderSchedulerCache
+  }
+
+  try {
+    if (typeof plus === 'undefined' || plus.os?.name !== 'Android') {
+      shellReminderSchedulerCache = null
+      return shellReminderSchedulerCache
+    }
+
+    const scheduler = plus.android.importClass('com.timeflow.selfdiscipline.reminder.ReminderScheduler')
+    shellReminderSchedulerCache = scheduler || null
+    return shellReminderSchedulerCache
+  } catch (error) {
+    shellReminderSchedulerCache = null
+    return shellReminderSchedulerCache
+  }
+}
+
 export const NOTIFICATION_REPEAT_DAYS = [1, 2, 3, 4, 5, 6, 0] as const
 
 const SETTINGS_DEFAULT: NotificationSettings = {
@@ -53,11 +81,36 @@ const SETTINGS_DEFAULT: NotificationSettings = {
 
 const SCHEDULE_WINDOW_DAYS = 180
 const REMINDER_TYPE = 'timeflow_recurring_reminder'
+const ANDROID_NATIVE_BACKEND = 'android-native'
+const PLUS_PUSH_BACKEND = 'plus-push'
 
 let reminderReceiveListenerBound = false
 let lastReminderToken = ''
 let foregroundReminderTimer: ReturnType<typeof setTimeout> | null = null
 let foregroundReminderToken = ''
+
+function createNotificationRuntimeState(
+  patch: Partial<NotificationRuntimeState> = {}
+): NotificationRuntimeState {
+  return {
+    backend: 'unsupported',
+    scheduleMode: 'disabled',
+    exactAlarmSupported: false,
+    exactAlarmGranted: false,
+    canOpenExactAlarmSettings: false,
+    batteryOptimizationSupported: false,
+    batteryOptimizationIgnored: false,
+    canRequestBatteryOptimizationExemption: false,
+    foregroundLoopEnabled: false,
+    lastSyncOk: true,
+    lastError: '',
+    ...patch
+  }
+}
+
+export function getDefaultNotificationRuntimeState() {
+  return createNotificationRuntimeState()
+}
 
 export class NotificationPermissionError extends Error {
   constructor() {
@@ -81,9 +134,32 @@ function isAppPushReady() {
   }
 }
 
+function isAndroidShellReminderBackend() {
+  try {
+    if (typeof plus === 'undefined' || plus.os?.name !== 'Android') return false
+
+    const scheduler = getShellReminderScheduler()
+    if (!scheduler) return false
+    if (typeof scheduler.isAvailable === 'function') {
+      return !!scheduler.isAvailable()
+    }
+
+    return true
+  } catch (error) {
+    return false
+  }
+}
+
+function getAndroidReminderDriver(): AndroidReminderDriver | null {
+  if (typeof plus === 'undefined' || plus.os?.name !== 'Android') return null
+  if (getNativeReminderModule()?.isAvailable?.()) return 'plugin'
+  if (isAndroidShellReminderBackend()) return 'shell'
+  return null
+}
+
 function isAndroidNativeReminderBackend() {
   try {
-    return typeof plus !== 'undefined' && plus.os?.name === 'Android' && !!getNativeReminderModule()?.isAvailable?.()
+    return !!getAndroidReminderDriver()
   } catch (error) {
     return false
   }
@@ -137,6 +213,24 @@ function delay(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms))
 }
 
+function toErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message
+  if (typeof error === 'string') return error
+
+  try {
+    return JSON.stringify(error)
+  } catch (stringifyError) {
+    return 'unknown-notification-error'
+  }
+}
+
+function attachRuntimeState(error: unknown, runtimeState: NotificationRuntimeState) {
+  const normalizedError = error instanceof Error ? error : new Error(toErrorMessage(error))
+  ;(normalizedError as Error & { notificationRuntimeState?: NotificationRuntimeState }).notificationRuntimeState =
+    runtimeState
+  return normalizedError
+}
+
 function getAndroidNotificationManager() {
   if (typeof plus === 'undefined' || plus.os?.name !== 'Android') return null
 
@@ -147,6 +241,148 @@ function getAndroidNotificationManager() {
   }
 
   return NotificationManagerCompat.from(main)
+}
+
+function getAndroidAlarmManager() {
+  if (typeof plus === 'undefined' || plus.os?.name !== 'Android') return null
+
+  try {
+    const main = plus.android.runtimeMainActivity()
+    const Context = plus.android.importClass('android.content.Context')
+    return main.getSystemService(Context.ALARM_SERVICE)
+  } catch (error) {
+    return null
+  }
+}
+
+function getAndroidSdkInt() {
+  try {
+    if (typeof plus === 'undefined' || plus.os?.name !== 'Android') return 0
+    const Build = plus.android.importClass('android.os.Build')
+    return Number(Build.VERSION.SDK_INT || 0)
+  } catch (error) {
+    return 0
+  }
+}
+
+function supportsAndroidExactAlarms() {
+  return getAndroidSdkInt() >= 31
+}
+
+function canOpenAndroidExactAlarmSettings() {
+  return typeof plus !== 'undefined' && plus.os?.name === 'Android' && supportsAndroidExactAlarms()
+}
+
+function supportsAndroidBatteryOptimizationExemption() {
+  return getAndroidSdkInt() >= 23
+}
+
+function isIgnoringAndroidBatteryOptimizations() {
+  try {
+    if (typeof plus === 'undefined' || plus.os?.name !== 'Android') return false
+    if (!supportsAndroidBatteryOptimizationExemption()) return true
+
+    const main = plus.android.runtimeMainActivity()
+    const Context = plus.android.importClass('android.content.Context')
+    const PowerManager = plus.android.importClass('android.os.PowerManager')
+    const powerManager = main.getSystemService(Context.POWER_SERVICE) as InstanceType<typeof PowerManager> | null
+
+    if (!powerManager || typeof powerManager.isIgnoringBatteryOptimizations !== 'function') {
+      return false
+    }
+
+    return !!powerManager.isIgnoringBatteryOptimizations(main.getPackageName())
+  } catch (error) {
+    return false
+  }
+}
+
+function canScheduleAndroidExactAlarms() {
+  try {
+    if (typeof plus === 'undefined' || plus.os?.name !== 'Android') return false
+    if (!supportsAndroidExactAlarms()) return true
+
+    const alarmManager = getAndroidAlarmManager()
+    if (!alarmManager || typeof alarmManager.canScheduleExactAlarms !== 'function') {
+      return false
+    }
+
+    return !!alarmManager.canScheduleExactAlarms()
+  } catch (error) {
+    return false
+  }
+}
+
+function buildAndroidNativeRuntimeState(options: {
+  enabled: boolean
+  ok: boolean
+  error?: string
+  nativeResult?: NativeReminderActionResult
+}) {
+  const exactAlarmSupported =
+    options.nativeResult?.exactAlarmSupported ?? supportsAndroidExactAlarms()
+  const exactAlarmGranted =
+    options.nativeResult?.exactAlarmGranted ??
+    (exactAlarmSupported ? canScheduleAndroidExactAlarms() : true)
+
+  let scheduleMode = options.nativeResult?.scheduleMode
+  if (scheduleMode !== 'exact' && scheduleMode !== 'inexact') {
+    scheduleMode = options.enabled ? (exactAlarmGranted ? 'exact' : 'inexact') : 'disabled'
+  }
+
+  const batteryOptimizationSupported = supportsAndroidBatteryOptimizationExemption()
+  const batteryOptimizationIgnored = isIgnoringAndroidBatteryOptimizations()
+
+  return createNotificationRuntimeState({
+    backend: ANDROID_NATIVE_BACKEND,
+    scheduleMode: options.enabled ? scheduleMode : 'disabled',
+    exactAlarmSupported,
+    exactAlarmGranted,
+    canOpenExactAlarmSettings: canOpenAndroidExactAlarmSettings(),
+    batteryOptimizationSupported,
+    batteryOptimizationIgnored,
+    canRequestBatteryOptimizationExemption:
+      batteryOptimizationSupported && !batteryOptimizationIgnored,
+    foregroundLoopEnabled: options.enabled && options.ok && scheduleMode === 'exact',
+    lastSyncOk: options.ok,
+    lastError: options.error || ''
+  })
+}
+
+function buildPlusPushRuntimeState(enabled: boolean, ok: boolean, error = '') {
+  return createNotificationRuntimeState({
+    backend: PLUS_PUSH_BACKEND,
+    scheduleMode: enabled ? 'scheduled' : 'disabled',
+    exactAlarmSupported: false,
+    exactAlarmGranted: false,
+    canOpenExactAlarmSettings: false,
+    batteryOptimizationSupported: false,
+    batteryOptimizationIgnored: false,
+    canRequestBatteryOptimizationExemption: false,
+    foregroundLoopEnabled: false,
+    lastSyncOk: ok,
+    lastError: error
+  })
+}
+
+function parseReminderActionResult(raw: unknown): NativeReminderActionResult {
+  if (!raw) return {}
+
+  if (typeof raw === 'string') {
+    try {
+      return JSON.parse(raw) as NativeReminderActionResult
+    } catch (error) {
+      return {
+        errMsg: raw
+      }
+    }
+  }
+
+  if (typeof raw === 'object') {
+    return raw as NativeReminderActionResult
+  }
+
+  return {}
 }
 
 function getAndroidSystemProperty(key: string) {
@@ -389,6 +625,66 @@ function openNotificationSettings() {
   }
 }
 
+export async function openExactAlarmSettings() {
+  await waitForNativeReady()
+
+  if (typeof plus === 'undefined' || plus.os?.name !== 'Android' || !supportsAndroidExactAlarms()) {
+    return false
+  }
+
+  try {
+    const main = plus.android.runtimeMainActivity()
+    const Intent = plus.android.importClass('android.content.Intent')
+    const Settings = plus.android.importClass('android.provider.Settings')
+    const Uri = plus.android.importClass('android.net.Uri')
+
+    const intent = new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
+    intent.setData(Uri.parse(`package:${main.getPackageName()}`))
+    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    main.startActivity(intent)
+    return true
+  } catch (error) {
+    return false
+  }
+}
+
+export async function requestIgnoreBatteryOptimizations() {
+  await waitForNativeReady()
+
+  if (
+    typeof plus === 'undefined' ||
+    plus.os?.name !== 'Android' ||
+    !supportsAndroidBatteryOptimizationExemption()
+  ) {
+    return false
+  }
+
+  try {
+    const main = plus.android.runtimeMainActivity()
+    const Intent = plus.android.importClass('android.content.Intent')
+    const Settings = plus.android.importClass('android.provider.Settings')
+    const Uri = plus.android.importClass('android.net.Uri')
+
+    const intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+    intent.setData(Uri.parse(`package:${main.getPackageName()}`))
+    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    main.startActivity(intent)
+    return true
+  } catch (error) {
+    try {
+      const main = plus.android.runtimeMainActivity()
+      const Intent = plus.android.importClass('android.content.Intent')
+      const Settings = plus.android.importClass('android.provider.Settings')
+      const intent = new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+      intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+      main.startActivity(intent)
+      return true
+    } catch (fallbackError) {
+      return false
+    }
+  }
+}
+
 async function requestNotificationPermission(options?: { openSettingsOnFail?: boolean }) {
   if (typeof plus === 'undefined') return false
   const openSettingsOnFail = options?.openSettingsOnFail ?? false
@@ -517,6 +813,30 @@ export async function ensureNotificationPermission(options?: { openSettingsOnFai
   return true
 }
 
+export async function getNotificationRuntimeState(settings?: NotificationSettings) {
+  await waitForNativeReady()
+
+  const enabled = settings?.enabled ?? false
+
+  if (isAndroidNativeReminderBackend()) {
+    return buildAndroidNativeRuntimeState({
+      enabled,
+      ok: true
+    })
+  }
+
+  if (typeof plus !== 'undefined' && isAppPushReady()) {
+    return buildPlusPushRuntimeState(enabled, true)
+  }
+
+  return createNotificationRuntimeState({
+    backend: 'unsupported',
+    scheduleMode: enabled ? 'unsupported' : 'disabled',
+    lastSyncOk: !enabled,
+    lastError: enabled ? 'notification-backend-unavailable' : ''
+  })
+}
+
 function clearLegacyPushMessages() {
   if (!isAppPushReady()) return
 
@@ -531,25 +851,113 @@ function syncAndroidNativeReminderSchedule(
   settings: NotificationSettings,
   locale: Locale
 ) {
-  return new Promise<void>((resolve, reject) => {
-    const copy = reminderCopy(locale)
+  const driver = getAndroidReminderDriver()
 
-    getNativeReminderModule()?.syncReminderSchedule?.({
+  if (driver === 'shell') {
+    return new Promise<NativeReminderActionResult>((resolve, reject) => {
+      try {
+        const scheduler = getShellReminderScheduler()
+        if (!scheduler || typeof scheduler.syncReminderSchedule !== 'function') {
+          reject(new Error('shell syncReminderSchedule unavailable'))
+          return
+        }
+
+        const context = plus.android.runtimeMainActivity()
+        const copy = reminderCopy(locale)
+        const rawResult = scheduler.syncReminderSchedule(
+          context,
+          normalizeTime(settings.time),
+          normalizeNotificationRepeatDays(settings.repeatDays).join(','),
+          copy.title,
+          copy.content
+        )
+        const result = parseReminderActionResult(rawResult)
+        const ok = `${result.errMsg || ''}`.includes(':ok')
+
+        if (ok) {
+          resolve(result)
+          return
+        }
+
+        const error = new Error(result.errMsg || 'shell syncReminderSchedule failed')
+        ;(error as Error & { nativeResult?: NativeReminderActionResult }).nativeResult = result
+        reject(error)
+      } catch (error) {
+        reject(error)
+      }
+    })
+  }
+
+  return new Promise<NativeReminderActionResult>((resolve, reject) => {
+    const copy = reminderCopy(locale)
+    const syncReminderSchedule = getNativeReminderModule()?.syncReminderSchedule
+
+    if (!syncReminderSchedule) {
+      reject(new Error('syncReminderSchedule unavailable'))
+      return
+    }
+
+    syncReminderSchedule({
       time: normalizeTime(settings.time),
       repeatDays: normalizeNotificationRepeatDays(settings.repeatDays),
       title: copy.title,
       content: copy.content,
-      success: () => resolve(),
-      fail: (result) => reject(new Error(result?.errMsg || 'syncReminderSchedule failed'))
+      success: (result) => resolve(result || {}),
+      fail: (result) => {
+        const error = new Error(result?.errMsg || 'syncReminderSchedule failed')
+        ;(error as Error & { nativeResult?: NativeReminderActionResult }).nativeResult = result
+        reject(error)
+      }
     })
   })
 }
 
 function clearAndroidNativeReminderSchedule() {
-  return new Promise<void>((resolve, reject) => {
-    getNativeReminderModule()?.clearReminderSchedule?.({
-      success: () => resolve(),
-      fail: (result) => reject(new Error(result?.errMsg || 'clearReminderSchedule failed'))
+  const driver = getAndroidReminderDriver()
+
+  if (driver === 'shell') {
+    return new Promise<NativeReminderActionResult>((resolve, reject) => {
+      try {
+        const scheduler = getShellReminderScheduler()
+        if (!scheduler || typeof scheduler.clearReminderSchedule !== 'function') {
+          reject(new Error('shell clearReminderSchedule unavailable'))
+          return
+        }
+
+        const context = plus.android.runtimeMainActivity()
+        const rawResult = scheduler.clearReminderSchedule(context)
+        const result = parseReminderActionResult(rawResult)
+        const ok = `${result.errMsg || ''}`.includes(':ok')
+
+        if (ok) {
+          resolve(result)
+          return
+        }
+
+        const error = new Error(result.errMsg || 'shell clearReminderSchedule failed')
+        ;(error as Error & { nativeResult?: NativeReminderActionResult }).nativeResult = result
+        reject(error)
+      } catch (error) {
+        reject(error)
+      }
+    })
+  }
+
+  return new Promise<NativeReminderActionResult>((resolve, reject) => {
+    const clearReminderSchedule = getNativeReminderModule()?.clearReminderSchedule
+
+    if (!clearReminderSchedule) {
+      reject(new Error('clearReminderSchedule unavailable'))
+      return
+    }
+
+    clearReminderSchedule({
+      success: (result) => resolve(result || {}),
+      fail: (result) => {
+        const error = new Error(result?.errMsg || 'clearReminderSchedule failed')
+        ;(error as Error & { nativeResult?: NativeReminderActionResult }).nativeResult = result
+        reject(error)
+      }
     })
   })
 }
@@ -561,22 +969,52 @@ export async function syncDailyNotifications(settings: NotificationSettings, loc
     clearLegacyPushMessages()
 
     if (!settings.enabled) {
-      await clearAndroidNativeReminderSchedule()
-      return
+      const result = await clearAndroidNativeReminderSchedule().catch(() => undefined)
+      return buildAndroidNativeRuntimeState({
+        enabled: false,
+        ok: true,
+        nativeResult: result
+      })
     }
 
     await ensureNotificationPermission()
-    await syncAndroidNativeReminderSchedule(settings, locale)
-    return
+
+    try {
+      const result = await syncAndroidNativeReminderSchedule(settings, locale)
+      return buildAndroidNativeRuntimeState({
+        enabled: true,
+        ok: true,
+        nativeResult: result
+      })
+    } catch (error) {
+      throw attachRuntimeState(
+        error,
+        buildAndroidNativeRuntimeState({
+          enabled: true,
+          ok: false,
+          error: toErrorMessage(error),
+          nativeResult: (error as Error & { nativeResult?: NativeReminderActionResult }).nativeResult
+        })
+      )
+    }
   }
 
   await waitForPlusReady()
 
-  if (!isAppPushReady()) return
+  if (!isAppPushReady()) {
+    return createNotificationRuntimeState({
+      backend: 'unsupported',
+      scheduleMode: settings.enabled ? 'unsupported' : 'disabled',
+      lastSyncOk: !settings.enabled,
+      lastError: settings.enabled ? 'notification-backend-unavailable' : ''
+    })
+  }
 
   clearLegacyPushMessages()
 
-  if (!settings.enabled) return
+  if (!settings.enabled) {
+    return buildPlusPushRuntimeState(false, true)
+  }
 
   await ensureNotificationPermission()
 
@@ -613,9 +1051,11 @@ export async function syncDailyNotifications(settings: NotificationSettings, loc
         }
       )
     } catch (error) {
-      return
+      throw attachRuntimeState(error, buildPlusPushRuntimeState(true, false, toErrorMessage(error)))
     }
   }
+
+  return buildPlusPushRuntimeState(true, true)
 }
 
 export async function registerForegroundReminderListener(
@@ -655,8 +1095,12 @@ export function stopForegroundReminderLoop() {
   }
 }
 
-export function usesNativeForegroundReminderLoop() {
-  return isAndroidNativeReminderBackend()
+export function usesNativeForegroundReminderLoop(runtimeState?: NotificationRuntimeState) {
+  if (runtimeState?.backend === ANDROID_NATIVE_BACKEND) {
+    return false
+  }
+
+  return false
 }
 
 export function startForegroundReminderLoop(

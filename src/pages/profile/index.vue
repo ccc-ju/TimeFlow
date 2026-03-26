@@ -35,6 +35,21 @@ const themeThumbStyle = computed(() => buildThumbStyle(themes.value.length, them
 const localeThumbStyle = computed(() => buildThumbStyle(locales.value.length, locales.value.findIndex((item) => item.key === appStore.locale)))
 const timeSheetVisible = ref(false)
 const notificationLocked = computed(() => !appStore.notificationPermissionGranted)
+const showExactAlarmWarning = computed(() => {
+  return (
+    appStore.notificationSettings.enabled &&
+    appStore.notificationRuntime.backend === 'android-native' &&
+    appStore.notificationRuntime.scheduleMode === 'inexact'
+  )
+})
+const showBatteryOptimizationWarning = computed(() => {
+  return (
+    appStore.notificationSettings.enabled &&
+    appStore.notificationRuntime.backend === 'android-native' &&
+    appStore.notificationRuntime.batteryOptimizationSupported &&
+    !appStore.notificationRuntime.batteryOptimizationIgnored
+  )
+})
 
 function buildThumbStyle(total: number, index: number) {
   const safeIndex = Math.max(0, index)
@@ -79,11 +94,17 @@ async function toggleNotifications(value: boolean) {
     await appStore.setNotificationEnabled(value)
     appStore.setNotificationPermissionPending(false)
     uni.showToast({
-      title: appStore.t(value ? 'notificationOn' : 'notificationOff'),
+      title: appStore.t(
+        value
+          ? appStore.notificationRuntime.scheduleMode === 'inexact'
+            ? 'notificationOnApproximate'
+            : 'notificationOn'
+          : 'notificationOff'
+      ),
       icon: 'none'
     })
   } catch (error) {
-    await appStore.forceNotificationDisabled(value).catch(() => undefined)
+    await appStore.forceNotificationDisabled(false).catch(() => undefined)
     uni.showToast({
       title: appStore.t('notificationPermissionDenied'),
       icon: 'none'
@@ -113,6 +134,26 @@ function openTimeSheet() {
     return
   }
   timeSheetVisible.value = true
+}
+
+async function openExactAlarmSettings() {
+  const opened = await appStore.openExactAlarmSettings().catch(() => false)
+  uni.showToast({
+    title: appStore.t(opened ? 'notificationExactAlarmOpened' : 'notificationExactAlarmOpenFailed'),
+    icon: 'none'
+  })
+}
+
+async function requestIgnoreBatteryOptimizations() {
+  const opened = await appStore.requestIgnoreBatteryOptimizations().catch(() => false)
+  uni.showToast({
+    title: appStore.t(
+      opened
+        ? 'notificationBatteryOptimizationOpened'
+        : 'notificationBatteryOptimizationOpenFailed'
+    ),
+    icon: 'none'
+  })
 }
 
 async function toggleRepeatDay(day: number) {
@@ -234,6 +275,18 @@ onShow(async () => {
         />
       </view>
       <text v-if="notificationLocked" class="panel__permission-tip">{{ appStore.t('notificationPermissionLocked') }}</text>
+      <view v-if="showExactAlarmWarning" class="notification-exact-tip">
+        <text class="notification-exact-tip__text">{{ appStore.t('notificationExactAlarmWarning') }}</text>
+        <text class="notification-exact-tip__action" @tap.stop="openExactAlarmSettings">
+          {{ appStore.t('notificationExactAlarmAction') }}
+        </text>
+      </view>
+      <view v-if="showBatteryOptimizationWarning" class="notification-exact-tip">
+        <text class="notification-exact-tip__text">{{ appStore.t('notificationBatteryOptimizationWarning') }}</text>
+        <text class="notification-exact-tip__action" @tap.stop="requestIgnoreBatteryOptimizations">
+          {{ appStore.t('notificationBatteryOptimizationAction') }}
+        </text>
+      </view>
 
       <view v-if="appStore.notificationSettings.enabled" class="notification-time" @tap="openTimeSheet">
         <text class="notification-time__label">{{ appStore.t('notificationTime') }}</text>
@@ -310,6 +363,34 @@ onShow(async () => {
   color: #ff8b94;
   font-size: 22rpx;
   line-height: 1.5;
+}
+
+.notification-exact-tip {
+  margin-top: 12rpx;
+  padding: 18rpx 20rpx;
+  border-radius: 20rpx;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18rpx;
+  background: rgba(255, 139, 148, 0.12);
+}
+
+.notification-exact-tip__text {
+  flex: 1;
+  color: #ff8b94;
+  font-size: 22rpx;
+  line-height: 1.55;
+}
+
+.notification-exact-tip__action {
+  flex-shrink: 0;
+  padding: 10rpx 16rpx;
+  border-radius: 999rpx;
+  color: #173349;
+  font-size: 22rpx;
+  font-weight: 700;
+  background: linear-gradient(135deg, rgba(168, 230, 207, 0.96), rgba(122, 179, 239, 0.82));
 }
 
 .panel__row {

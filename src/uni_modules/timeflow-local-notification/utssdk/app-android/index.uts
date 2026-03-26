@@ -29,23 +29,45 @@ const KEY_TIME = 'time'
 const KEY_REPEAT_DAYS = 'repeat_days'
 const KEY_TITLE = 'title'
 const KEY_CONTENT = 'content'
+const KEY_SCHEDULE_MODE = 'schedule_mode'
 const EXTRA_DAY = 'day'
 const EXTRA_HOUR = 'hour'
 const EXTRA_MINUTE = 'minute'
 const EXTRA_TITLE = 'title'
 const EXTRA_CONTENT = 'content'
+const EXTRA_SCHEDULE_MODE = 'schedule_mode'
+const SCHEDULE_MODE_DISABLED = 'disabled'
+const SCHEDULE_MODE_EXACT = 'exact'
+const SCHEDULE_MODE_INEXACT = 'inexact'
 
-function buildResult(errMsg: string, scheduledCount: number): ReminderActionResult {
+function buildResult(
+  errMsg: string,
+  scheduledCount: number,
+  scheduleMode: string,
+  exactAlarmSupported: boolean,
+  exactAlarmGranted: boolean
+): ReminderActionResult {
   return {
     errMsg,
     backend: BACKEND,
-    scheduledCount
+    scheduledCount,
+    scheduleMode,
+    exactAlarmSupported,
+    exactAlarmGranted
   }
 }
 
-function notifyAction(options: ReminderActionOptions, ok: boolean, errMsg: string, scheduledCount: number) {
+function notifyAction(
+  options: ReminderActionOptions,
+  ok: boolean,
+  errMsg: string,
+  scheduledCount: number,
+  scheduleMode: string,
+  exactAlarmSupported: boolean,
+  exactAlarmGranted: boolean
+) {
   if (options == null) return
-  const result = buildResult(errMsg, scheduledCount)
+  const result = buildResult(errMsg, scheduledCount, scheduleMode, exactAlarmSupported, exactAlarmGranted)
 
   if (ok) {
     if (options.success != null) {
@@ -62,8 +84,16 @@ function notifyAction(options: ReminderActionOptions, ok: boolean, errMsg: strin
   }
 }
 
-function notifySchedule(options: ReminderScheduleOptions, ok: boolean, errMsg: string, scheduledCount: number) {
-  const result = buildResult(errMsg, scheduledCount)
+function notifySchedule(
+  options: ReminderScheduleOptions,
+  ok: boolean,
+  errMsg: string,
+  scheduledCount: number,
+  scheduleMode: string,
+  exactAlarmSupported: boolean,
+  exactAlarmGranted: boolean
+) {
+  const result = buildResult(errMsg, scheduledCount, scheduleMode, exactAlarmSupported, exactAlarmGranted)
 
   if (ok) {
     if (options.success != null) {
@@ -119,7 +149,30 @@ function parseTime(input: string): { hour: number; minute: number } {
   }
 }
 
-function persistSchedule(context: Context, options: ReminderScheduleOptions) {
+function supportsExactAlarms(): boolean {
+  return Build.VERSION.SDK_INT >= 31
+}
+
+function canUseExactAlarms(context: Context): boolean {
+  if (!supportsExactAlarms()) {
+    return true
+  }
+
+  const alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+  if (alarmManager == null) return false
+
+  try {
+    return alarmManager.canScheduleExactAlarms()
+  } catch (error) {
+    return false
+  }
+}
+
+function resolveScheduleMode(context: Context): string {
+  return canUseExactAlarms(context) ? SCHEDULE_MODE_EXACT : SCHEDULE_MODE_INEXACT
+}
+
+function persistSchedule(context: Context, options: ReminderScheduleOptions, scheduleMode: string) {
   const prefs = getPreferences(context)
   prefs
     .edit()
@@ -127,6 +180,15 @@ function persistSchedule(context: Context, options: ReminderScheduleOptions) {
     .putString(KEY_REPEAT_DAYS, options.repeatDays.join(','))
     .putString(KEY_TITLE, options.title)
     .putString(KEY_CONTENT, options.content)
+    .putString(KEY_SCHEDULE_MODE, scheduleMode)
+    .apply()
+}
+
+function persistScheduleMode(context: Context, scheduleMode: string) {
+  const prefs = getPreferences(context)
+  prefs
+    .edit()
+    .putString(KEY_SCHEDULE_MODE, scheduleMode)
     .apply()
 }
 
@@ -138,7 +200,13 @@ function clearStoredSchedule(context: Context) {
     .remove(KEY_REPEAT_DAYS)
     .remove(KEY_TITLE)
     .remove(KEY_CONTENT)
+    .remove(KEY_SCHEDULE_MODE)
     .apply()
+}
+
+function getStoredScheduleMode(context: Context): string {
+  const prefs = getPreferences(context)
+  return prefs.getString(KEY_SCHEDULE_MODE, SCHEDULE_MODE_DISABLED) || SCHEDULE_MODE_DISABLED
 }
 
 function requestCodeForDay(day: number): number {
@@ -164,15 +232,6 @@ function toJsDay(calendarDay: number): number {
 function computeNextTriggerMillis(day: number, hour: number, minute: number): number {
   const now = Calendar.getInstance()
   const normalizedDay = normalizeDay(day)
-  const currentJsDay = toJsDay(now.get(Calendar.DAY_OF_WEEK))
-  const isCurrentMinute =
-    currentJsDay == normalizedDay &&
-    now.get(Calendar.HOUR_OF_DAY) == hour &&
-    now.get(Calendar.MINUTE) == minute
-
-  if (isCurrentMinute) {
-    return now.getTimeInMillis() + 5000
-  }
 
   const target = Calendar.getInstance()
   target.set(Calendar.SECOND, 0)
@@ -188,7 +247,15 @@ function computeNextTriggerMillis(day: number, hour: number, minute: number): nu
   return target.getTimeInMillis()
 }
 
-function createReminderIntent(context: Context, day: number, hour: number, minute: number, title: string, content: string): Intent {
+function createReminderIntent(
+  context: Context,
+  day: number,
+  hour: number,
+  minute: number,
+  title: string,
+  content: string,
+  scheduleMode: string
+): Intent {
   const intent = new Intent(ACTION_TRIGGER)
   intent.setClassName(context, REMINDER_RECEIVER_CLASS)
   intent.putExtra(EXTRA_DAY, normalizeDay(day))
@@ -196,11 +263,20 @@ function createReminderIntent(context: Context, day: number, hour: number, minut
   intent.putExtra(EXTRA_MINUTE, minute)
   intent.putExtra(EXTRA_TITLE, title)
   intent.putExtra(EXTRA_CONTENT, content)
+  intent.putExtra(EXTRA_SCHEDULE_MODE, scheduleMode)
   return intent
 }
 
-function buildPendingIntent(context: Context, day: number, hour: number, minute: number, title: string, content: string) {
-  const intent = createReminderIntent(context, day, hour, minute, title, content)
+function buildPendingIntent(
+  context: Context,
+  day: number,
+  hour: number,
+  minute: number,
+  title: string,
+  content: string,
+  scheduleMode: string
+) {
+  const intent = createReminderIntent(context, day, hour, minute, title, content, scheduleMode)
   let flags = PendingIntent.FLAG_UPDATE_CURRENT
 
   if (Build.VERSION.SDK_INT >= 23) {
@@ -237,29 +313,54 @@ function ensureNotificationChannel(context: Context) {
   manager.createNotificationChannel(channel)
 }
 
-function scheduleAlarm(context: Context, day: number, hour: number, minute: number, title: string, content: string) {
+function scheduleAlarm(
+  context: Context,
+  day: number,
+  hour: number,
+  minute: number,
+  title: string,
+  content: string,
+  scheduleMode: string
+): string {
   const alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-  if (alarmManager == null) return
+  if (alarmManager == null) return SCHEDULE_MODE_DISABLED
 
   const triggerAtMillis = computeNextTriggerMillis(day, hour, minute)
-  const pendingIntent = buildPendingIntent(context, day, hour, minute, title, content)
+  console.log(
+    `TimeFlowReminder scheduleAlarm day=${day} requestCode=${requestCodeForDay(day)} hour=${hour} minute=${minute} mode=${scheduleMode} triggerAt=${triggerAtMillis}`
+  )
+  let effectiveMode = scheduleMode
+  let pendingIntent = buildPendingIntent(context, day, hour, minute, title, content, effectiveMode)
 
-  if (Build.VERSION.SDK_INT >= 23) {
-    try {
-      alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
-      return
-    } catch (error) {
-      alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
-      return
+  if (effectiveMode == SCHEDULE_MODE_EXACT) {
+    if (Build.VERSION.SDK_INT >= 23) {
+      try {
+        alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
+        return SCHEDULE_MODE_EXACT
+      } catch (error) {
+        effectiveMode = SCHEDULE_MODE_INEXACT
+        pendingIntent = buildPendingIntent(context, day, hour, minute, title, content, effectiveMode)
+        alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
+        return effectiveMode
+      }
     }
+
+    if (Build.VERSION.SDK_INT >= 19) {
+      alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
+      return SCHEDULE_MODE_EXACT
+    }
+
+    alarmManager.set(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
+    return SCHEDULE_MODE_EXACT
   }
 
-  if (Build.VERSION.SDK_INT >= 19) {
-    alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
-    return
+  if (Build.VERSION.SDK_INT >= 23) {
+    alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
+    return SCHEDULE_MODE_INEXACT
   }
 
   alarmManager.set(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
+  return SCHEDULE_MODE_INEXACT
 }
 
 function cancelAllAlarms(context: Context) {
@@ -347,14 +448,30 @@ function restoreSchedule(context: Context) {
   const content = prefs.getString(KEY_CONTENT, 'Review today and plan your next focus session.') || 'Review today and plan your next focus session.'
   const repeatDays = repeatDaysRaw.split(',')
   const parsedTime = parseTime(time)
+  const preferredMode = resolveScheduleMode(context)
+  let scheduledMode = preferredMode
 
   cancelAllAlarms(context)
 
   for (let index = 0; index < repeatDays.length; index += 1) {
     const value = repeatDays[index]
     if (value == null || value.length == 0) continue
-    scheduleAlarm(context, Number(value), parsedTime.hour, parsedTime.minute, title, content)
+    const alarmMode = scheduleAlarm(
+      context,
+      Number(value),
+      parsedTime.hour,
+      parsedTime.minute,
+      title,
+      content,
+      preferredMode
+    )
+
+    if (alarmMode != SCHEDULE_MODE_EXACT) {
+      scheduledMode = SCHEDULE_MODE_INEXACT
+    }
   }
+
+  persistScheduleMode(context, scheduledMode)
 }
 
 export class ReminderAlarmReceiver extends BroadcastReceiver {
@@ -364,12 +481,12 @@ export class ReminderAlarmReceiver extends BroadcastReceiver {
     const minute = intent.getIntExtra(EXTRA_MINUTE, 0)
     const title = intent.getStringExtra(EXTRA_TITLE) || 'TimeFlow Reminder'
     const content = intent.getStringExtra(EXTRA_CONTENT) || 'Review today and plan your next focus session.'
+    const triggeredMode = intent.getStringExtra(EXTRA_SCHEDULE_MODE) || getStoredScheduleMode(context)
 
-    scheduleAlarm(context, day, hour, minute, title, content)
+    const nextMode = scheduleAlarm(context, day, hour, minute, title, content, resolveScheduleMode(context))
+    persistScheduleMode(context, nextMode)
 
-    if (!isAppInForeground(context)) {
-      showNotification(context, day, title, content)
-    }
+    showNotification(context, day, title, content)
   }
 }
 
@@ -385,9 +502,19 @@ export function isAvailable(): boolean {
 
 export function syncReminderSchedule(options: ReminderScheduleOptions): void {
   const context = getContext()
+  const exactAlarmSupported = context != null ? supportsExactAlarms() : false
+  const exactAlarmGranted = context != null ? canUseExactAlarms(context) : false
 
   if (context == null) {
-    notifySchedule(options, false, 'syncReminderSchedule:fail app context unavailable', 0)
+    notifySchedule(
+      options,
+      false,
+      'syncReminderSchedule:fail app context unavailable',
+      0,
+      SCHEDULE_MODE_DISABLED,
+      exactAlarmSupported,
+      exactAlarmGranted
+    )
     return
   }
 
@@ -395,41 +522,85 @@ export function syncReminderSchedule(options: ReminderScheduleOptions): void {
     clearStoredSchedule(context)
     cancelAllAlarms(context)
     clearDisplayedNotifications(context)
-    notifySchedule(options, false, 'syncReminderSchedule:fail repeatDays required', 0)
+    notifySchedule(
+      options,
+      false,
+      'syncReminderSchedule:fail repeatDays required',
+      0,
+      SCHEDULE_MODE_DISABLED,
+      exactAlarmSupported,
+      exactAlarmGranted
+    )
     return
   }
 
   const parsedTime = parseTime(options.time)
+  const preferredMode = resolveScheduleMode(context)
+  let scheduledMode = preferredMode
+  console.log(
+    `TimeFlowReminder syncReminderSchedule time=${options.time} repeatDays=${options.repeatDays.join(',')} preferredMode=${preferredMode}`
+  )
 
   try {
-    persistSchedule(context, options)
     cancelAllAlarms(context)
     clearDisplayedNotifications(context)
     ensureNotificationChannel(context)
 
     for (let index = 0; index < options.repeatDays.length; index += 1) {
-      scheduleAlarm(
+      const alarmMode = scheduleAlarm(
         context,
         options.repeatDays[index],
         parsedTime.hour,
         parsedTime.minute,
         options.title,
-        options.content
+        options.content,
+        preferredMode
       )
+
+      if (alarmMode != SCHEDULE_MODE_EXACT) {
+        scheduledMode = SCHEDULE_MODE_INEXACT
+      }
     }
 
-    notifySchedule(options, true, 'syncReminderSchedule:ok', options.repeatDays.length)
+    persistSchedule(context, options, scheduledMode)
+    notifySchedule(
+      options,
+      true,
+      scheduledMode == SCHEDULE_MODE_EXACT ? 'syncReminderSchedule:ok' : 'syncReminderSchedule:ok inexact',
+      options.repeatDays.length,
+      scheduledMode,
+      exactAlarmSupported,
+      exactAlarmGranted
+    )
   } catch (error) {
-    notifySchedule(options, false, `syncReminderSchedule:fail ${error}`, 0)
+    notifySchedule(
+      options,
+      false,
+      `syncReminderSchedule:fail ${error}`,
+      0,
+      SCHEDULE_MODE_DISABLED,
+      exactAlarmSupported,
+      exactAlarmGranted
+    )
   }
 }
 
 export function clearReminderSchedule(options?: ReminderActionOptions): void {
   const context = getContext()
+  const exactAlarmSupported = context != null ? supportsExactAlarms() : false
+  const exactAlarmGranted = context != null ? canUseExactAlarms(context) : false
 
   if (context == null) {
     if (options != null) {
-      notifyAction(options, false, 'clearReminderSchedule:fail app context unavailable', 0)
+      notifyAction(
+        options,
+        false,
+        'clearReminderSchedule:fail app context unavailable',
+        0,
+        SCHEDULE_MODE_DISABLED,
+        exactAlarmSupported,
+        exactAlarmGranted
+      )
     }
     return
   }
@@ -439,11 +610,27 @@ export function clearReminderSchedule(options?: ReminderActionOptions): void {
     cancelAllAlarms(context)
     clearDisplayedNotifications(context)
     if (options != null) {
-      notifyAction(options, true, 'clearReminderSchedule:ok', 0)
+      notifyAction(
+        options,
+        true,
+        'clearReminderSchedule:ok',
+        0,
+        SCHEDULE_MODE_DISABLED,
+        exactAlarmSupported,
+        exactAlarmGranted
+      )
     }
   } catch (error) {
     if (options != null) {
-      notifyAction(options, false, `clearReminderSchedule:fail ${error}`, 0)
+      notifyAction(
+        options,
+        false,
+        `clearReminderSchedule:fail ${error}`,
+        0,
+        SCHEDULE_MODE_DISABLED,
+        exactAlarmSupported,
+        exactAlarmGranted
+      )
     }
   }
 }

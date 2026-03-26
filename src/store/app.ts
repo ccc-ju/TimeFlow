@@ -3,16 +3,26 @@ import { defineStore } from 'pinia'
 import { messages } from '@/constants/i18n'
 import {
   ensureNotificationPermission,
+  getDefaultNotificationRuntimeState,
   getDefaultNotificationSettings,
+  getNotificationRuntimeState,
   hasNotificationPermission,
   isHBuilderDebugBase,
   normalizeNotificationRepeatDays,
   NotificationPermissionError,
+  openExactAlarmSettings as openExactAlarmSettingsService,
+  requestIgnoreBatteryOptimizations as requestIgnoreBatteryOptimizationsService,
   syncDailyNotifications
 } from '@/services/notification'
 import { fetchDailyWallpaper, DEFAULT_WALLPAPER } from '@/services/bing'
 import { getSetting, initDatabase, setSetting } from '@/services/sqlite'
-import type { Locale, NotificationSettings, ThemeMode, WallpaperPayload } from '@/types/timeflow'
+import type {
+  Locale,
+  NotificationRuntimeState,
+  NotificationSettings,
+  ThemeMode,
+  WallpaperPayload
+} from '@/types/timeflow'
 import { toDayKey } from '@/utils/date'
 
 let mediaQueryCleanup: (() => void) | null = null
@@ -35,6 +45,11 @@ function parseStoredRepeatDays(raw: string | null | undefined) {
 
 function isNotificationPermissionError(error: unknown) {
   return error instanceof NotificationPermissionError || (error instanceof Error && error.message === 'notification-permission-denied')
+}
+
+function readNotificationRuntimeStateFromError(error: unknown) {
+  const runtimeState = (error as { notificationRuntimeState?: NotificationRuntimeState } | null)?.notificationRuntimeState
+  return runtimeState || null
 }
 
 function getSystemTheme(): 'light' | 'dark' {
@@ -98,6 +113,7 @@ export const useAppStore = defineStore('app', {
     themeMode: 'system' as ThemeMode,
     appliedTheme: 'light' as 'light' | 'dark',
     notificationSettings: getDefaultNotificationSettings() as NotificationSettings,
+    notificationRuntime: getDefaultNotificationRuntimeState() as NotificationRuntimeState,
     notificationPermissionGranted: false,
     notificationPermissionAskedOnce: false,
     notificationPermissionPromptVersion: '',
@@ -158,6 +174,7 @@ export const useAppStore = defineStore('app', {
 
       this.wallpaper = await fetchDailyWallpaper()
       await this.initializeNotificationPermission()
+      await this.refreshNotificationRuntime()
       if (this.notificationSettings.enabled) {
         try {
           await this.syncNotifications()
@@ -169,6 +186,10 @@ export const useAppStore = defineStore('app', {
             }
             await setSetting('notificationEnabled', 'false')
           } else {
+            const runtimeState = readNotificationRuntimeStateFromError(error)
+            if (runtimeState) {
+              this.notificationRuntime = runtimeState
+            }
             console.warn('sync notifications skipped', error)
           }
         }
@@ -201,7 +222,18 @@ export const useAppStore = defineStore('app', {
       }
     },
     async syncNotifications() {
-      await syncDailyNotifications(this.notificationSettings, this.locale)
+      this.notificationRuntime = await syncDailyNotifications(this.notificationSettings, this.locale)
+      return this.notificationRuntime
+    },
+    async refreshNotificationRuntime() {
+      this.notificationRuntime = await getNotificationRuntimeState(this.notificationSettings)
+      return this.notificationRuntime
+    },
+    async openExactAlarmSettings() {
+      return openExactAlarmSettingsService()
+    },
+    async requestIgnoreBatteryOptimizations() {
+      return requestIgnoreBatteryOptimizationsService()
     },
     async resolveNotificationPermission(retryIfDenied = false) {
       let granted = await hasNotificationPermission()
@@ -263,6 +295,7 @@ export const useAppStore = defineStore('app', {
     },
     async reconcileNotificationPermission() {
       const granted = await this.resolveNotificationPermission(true)
+      await this.refreshNotificationRuntime()
 
       if (granted) {
         this.notificationPermissionPending = false

@@ -2,11 +2,27 @@ export type TimerMode = 'countup' | 'countdown' | 'notimer'
 export type TaskStatus = 'pending' | 'done'
 export type ThemeMode = 'light' | 'dark' | 'system'
 export type Locale = 'zh-CN' | 'en'
+export type NotificationBackend = 'android-native' | 'plus-push' | 'unsupported'
+export type NotificationScheduleMode = 'disabled' | 'exact' | 'inexact' | 'scheduled' | 'unsupported'
 
 export interface NotificationSettings {
   enabled: boolean
   time: string
   repeatDays: number[]
+}
+
+export interface NotificationRuntimeState {
+  backend: NotificationBackend
+  scheduleMode: NotificationScheduleMode
+  exactAlarmSupported: boolean
+  exactAlarmGranted: boolean
+  canOpenExactAlarmSettings: boolean
+  batteryOptimizationSupported: boolean
+  batteryOptimizationIgnored: boolean
+  canRequestBatteryOptimizationExemption: boolean
+  foregroundLoopEnabled: boolean
+  lastSyncOk: boolean
+  lastError: string
 }
 
 export interface WallpaperPayload {

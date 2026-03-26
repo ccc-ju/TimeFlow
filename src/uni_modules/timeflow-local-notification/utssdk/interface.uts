@@ -2,6 +2,9 @@ export type ReminderActionResult = {
   errMsg: string
   backend: string
   scheduledCount: number
+  scheduleMode: string
+  exactAlarmSupported: boolean
+  exactAlarmGranted: boolean
 }
 
 export type ReminderActionOptions = {

@@ -42,7 +42,7 @@ async function ensureReminderListener() {
 }
 
 function syncForegroundReminderLoop() {
-  if (!usesNativeForegroundReminderLoop()) {
+  if (!usesNativeForegroundReminderLoop(appStore.notificationRuntime)) {
     stopForegroundReminderLoop()
     return
   }
@@ -88,6 +88,14 @@ onShow(async () => {
   await appStore.reconcileNotificationPermission().catch((error) => {
     console.warn('reconcile notification permission skipped', error)
   })
+  if (
+    appStore.notificationSettings.enabled &&
+    appStore.notificationRuntime.backend === 'android-native'
+  ) {
+    await appStore.syncNotifications().catch((error) => {
+      console.warn('resync android notifications skipped', error)
+    })
+  }
   await ensureReminderListener()
   syncForegroundReminderLoop()
   startDaySyncTicker()
@@ -104,7 +112,10 @@ watch(
     appStore.notificationSettings.time,
     appStore.notificationSettings.repeatDays.join(','),
     appStore.notificationPermissionGranted,
-    appStore.locale
+    appStore.locale,
+    appStore.notificationRuntime.backend,
+    appStore.notificationRuntime.scheduleMode,
+    appStore.notificationRuntime.foregroundLoopEnabled
   ],
   () => {
     syncForegroundReminderLoop()
